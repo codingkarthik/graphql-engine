@@ -42,9 +42,3 @@ args:
   args:
     sql: |
       insert into hge_tests.test_t1(c1,c2) values (1,'foo');
-- type: run_sql
-  args:
-    sql: |
-      update hge_tests.test_t1
-      set c2 = 'baz'
-      where c1 = 1;
