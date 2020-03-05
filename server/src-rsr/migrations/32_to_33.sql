@@ -1,5 +1,5 @@
-alter table hdb_catalog.event_logs
-add column paused boolean default false;
+ALTER TABLE hdb_catalog.event_log
+ADD COLUMN paused BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE OR REPLACE FUNCTION
   hdb_catalog.insert_event_log(schema_name text, table_name text, trigger_name text, op text, row_data json)
