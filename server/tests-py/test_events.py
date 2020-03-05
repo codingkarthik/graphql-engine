@@ -557,3 +557,44 @@ class TestManualEvents(object):
         assert st_code == 200, resp
         st_code, resp = hge_ctx.v1q_f('queries/event_triggers/manual_events/disabled.yaml')
         assert st_code == 400, resp
+
+class TestPauseEventTriggers(object):
+
+    @classmethod
+    def dir(cls):
+        return 'queries/event_triggers/pause_event_triggers'
+
+    def test_setup(self, hge_ctx, evts_webhook):
+        st_code,resp = hge_ctx.v1q_f(self.dir() + '/setup.yaml')
+        assert st_code == 200, resp
+
+    def test_check_generated_events_pause_state(self, hge_ctx, evts_webhook):
+        q = {
+            "type":"select",
+            "args":{
+                "table": {"schema": "hdb_catalog", "name": "event_log"},
+                "columns": ["paused"],
+                "order_by": ["-created_at"],
+                "where": {"trigger_name":"t1_all","archived":"f"}
+            }
+        }
+        st_code,resp = hge_ctx.v1q(q)
+        for log in resp:
+            assert log['paused']
+        q = {
+            "type":"select",
+            "args":{
+                "table": {"schema": "hdb_catalog", "name": "event_log"},
+                "columns": ["paused"],
+                "order_by": ["-created_at"],
+                "where": {"trigger_name":"t1_all_without_pause","archived":"f"}
+            }
+        }
+        st_code,resp = hge_ctx.v1q(q)
+        for log in resp:
+            assert not log['paused']
+        assert st_code == 200
+
+    def test_teardown(self, hge_ctx, evts_webhook):
+        st_code,resp = hge_ctx.v1q_f(self.dir() + '/teardown.yaml')
+        assert st_code == 200, resp
