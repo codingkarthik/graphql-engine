@@ -24,17 +24,18 @@ import           Hasura.Server.Telemetry.Counters
 import           Hasura.Server.Version
 
 import qualified CI
-import qualified Control.Concurrent.Extended as C
-import qualified Data.Aeson                  as A
-import qualified Data.Aeson.Casing           as A
-import qualified Data.Aeson.TH               as A
-import qualified Data.ByteString.Lazy        as BL
-import qualified Data.HashMap.Strict         as Map
-import qualified Data.Text                   as T
-import qualified Network.HTTP.Client         as HTTP
-import qualified Network.HTTP.Types          as HTTP
-import qualified Network.Wreq                as Wreq
-import qualified Data.Set                    as Set
+import qualified Control.Concurrent.Extended   as C
+import qualified Data.Aeson                    as A
+import qualified Data.Aeson.Casing             as A
+import qualified Data.Aeson.TH                 as A
+import qualified Data.ByteString.Lazy          as BL
+import qualified Data.HashMap.Strict           as Map
+import qualified Data.Text                     as T
+import qualified Network.HTTP.Client           as HTTP
+import qualified Network.HTTP.Types            as HTTP
+import qualified Network.Wreq                  as Wreq
+import qualified Data.Set                      as Set
+import qualified Language.GraphQL.Draft.Syntax as G
 
 data RelationshipMetric
   = RelationshipMetric
@@ -55,10 +56,10 @@ $(A.deriveToJSON (A.aesonDrop 3 A.snakeCase) ''PermissionMetric)
 
 data ActionMetric
     = ActionMetric
-    { _amSynchronous  :: !Int
-    , _amAsynchronous :: !Int
-    , _amRelationships :: !Int
-    , _amCustomTypes   :: !Int
+    { _amSynchronous       :: !Int
+    , _amAsynchronous      :: !Int
+    , _amTypeRelationships :: !Int
+    , _amCustomTypes       :: !Int
     } deriving (Show, Eq)
 $(A.deriveToJSON (A.aesonDrop 3 A.snakeCase) ''ActionMetric)
 
@@ -163,7 +164,7 @@ computeMetrics sc _mtServiceTimings =
                     $ Map.map _tiEventTriggerInfoMap userTables
       _mtRemoteSchemas   = Map.size $ scRemoteSchemas sc
       _mtFunctions = Map.size $ Map.filter (not . isSystemDefined . fiSystemDefined) $ scFunctions sc
-      _mtActions = computeActionsMetrics (scActions sc)
+      _mtActions = computeActionsMetrics (scActions sc) (snd . scCustomTypes $ sc)
 
   in Metrics{..}
 
@@ -177,14 +178,23 @@ computeMetrics sc _mtServiceTimings =
     permsOfTbl :: TableInfo -> [(RoleName, RolePermInfo)]
     permsOfTbl = Map.toList . _tiRolePermInfoMap
 
-computeActionsMetrics :: ActionCache -> ActionMetric
-computeActionsMetrics ac = ActionMetric syncActionsLen asyncActionsLen 0 customTypesLen
+computeActionsMetrics :: ActionCache -> AnnotatedObjects -> ActionMetric
+computeActionsMetrics ac ao = ActionMetric syncActionsLen asyncActionsLen typeRelationships customTypesLen
   where actionsElems = Map.elems ac
         syncActionsLen  = length . filter ((==ActionSynchronous) . _adKind . _aiDefinition) $ actionsElems
         asyncActionsLen = (length actionsElems) - syncActionsLen
+        -- using set to get the distinct values because actions may share a custom type
         outputTypesLen = Set.size . Set.fromList . (map (_adOutputType . _aiDefinition)) $ actionsElems
         inputTypesLen = Set.size . Set.fromList . concat .(map ((map _argType) . _adArguments . _aiDefinition)) $ actionsElems
         customTypesLen = inputTypesLen + outputTypesLen
+        typeRelationships = sum . map ((getActionTypeRelationshipsCount ao) . _aiDefinition) $ actionsElems
+
+        -- gives the count of relationships associated with an action
+        getActionTypeRelationshipsCount :: AnnotatedObjects -> ResolvedActionDefinition -> Int
+        getActionTypeRelationshipsCount annotatedObjs actionDefn =
+          let typeName = G.getBaseType $ unGraphQLType $ _adOutputType actionDefn
+              annotatedObj = Map.lookup (ObjectTypeName typeName) annotatedObjs
+          in maybe 0 (Map.size . _aotRelationships) annotatedObj
 
 -- | Logging related
 
