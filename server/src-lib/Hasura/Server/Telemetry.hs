@@ -182,18 +182,19 @@ computeActionsMetrics ac ao = ActionMetric syncActionsLen asyncActionsLen typeRe
   where actionsElems = Map.elems ac
         syncActionsLen  = length . filter ((==ActionSynchronous) . _adKind . _aiDefinition) $ actionsElems
         asyncActionsLen = (length actionsElems) - syncActionsLen
-        -- using set to get the distinct values because actions may share a custom type
+
         outputTypesLen = length . nub . (map (_adOutputType . _aiDefinition)) $ actionsElems
         inputTypesLen = length . nub . concat . (map ((map _argType) . _adArguments . _aiDefinition)) $ actionsElems
         customTypesLen = inputTypesLen + outputTypesLen
-        typeRelationships = sum . map ((getActionTypeRelationshipsCount ao) . _aiDefinition) $ actionsElems
+
+        typeRelationships = length . nub . concat . map ((getActionTypeRelationshipNames ao) . _aiDefinition) $ actionsElems
 
         -- gives the count of relationships associated with an action
-        getActionTypeRelationshipsCount :: AnnotatedObjects -> ResolvedActionDefinition -> Int
-        getActionTypeRelationshipsCount annotatedObjs actionDefn =
+        getActionTypeRelationshipNames :: AnnotatedObjects -> ResolvedActionDefinition -> [RelationshipName]
+        getActionTypeRelationshipNames annotatedObjs actionDefn =
           let typeName = G.getBaseType $ unGraphQLType $ _adOutputType actionDefn
               annotatedObj = Map.lookup (ObjectTypeName typeName) annotatedObjs
-          in maybe 0 (Map.size . _aotRelationships) annotatedObj
+          in maybe [] (Map.keys . _aotRelationships) annotatedObj
 
 -- | Logging related
 
