@@ -179,15 +179,15 @@ computeMetrics sc _mtServiceTimings =
 
 computeActionsMetrics :: ActionCache -> AnnotatedObjects -> ActionMetric
 computeActionsMetrics ac ao = ActionMetric syncActionsLen asyncActionsLen typeRelationships customTypesLen
-  where actionsElems = Map.elems ac
-        syncActionsLen  = length . filter ((==ActionSynchronous) . _adKind . _aiDefinition) $ actionsElems
-        asyncActionsLen = (length actionsElems) - syncActionsLen
+  where actions = Map.elems ac
+        syncActionsLen  = length . filter ((==ActionSynchronous) . _adKind . _aiDefinition) $ actions
+        asyncActionsLen = (length actions) - syncActionsLen
 
-        outputTypesLen = length . nub . (map (_adOutputType . _aiDefinition)) $ actionsElems
-        inputTypesLen = length . nub . concat . (map ((map _argType) . _adArguments . _aiDefinition)) $ actionsElems
+        outputTypesLen = length . nub . (map (_adOutputType . _aiDefinition)) $ actions
+        inputTypesLen = length . nub . concat . (map ((map _argType) . _adArguments . _aiDefinition)) $ actions
         customTypesLen = inputTypesLen + outputTypesLen
 
-        typeRelationships = length . nub . concat . map ((getActionTypeRelationshipNames ao) . _aiDefinition) $ actionsElems
+        typeRelationships = length . nub . concat . map ((getActionTypeRelationshipNames ao) . _aiDefinition) $ actions
 
         -- gives the count of relationships associated with an action
         getActionTypeRelationshipNames :: AnnotatedObjects -> ResolvedActionDefinition -> [RelationshipName]
