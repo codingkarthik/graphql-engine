@@ -34,7 +34,7 @@ import qualified Data.Text                   as T
 import qualified Network.HTTP.Client         as HTTP
 import qualified Network.HTTP.Types          as HTTP
 import qualified Network.Wreq                as Wreq
-
+import qualified Data.Set                    as Set
 
 data RelationshipMetric
   = RelationshipMetric
@@ -53,6 +53,15 @@ data PermissionMetric
   } deriving (Show, Eq)
 $(A.deriveToJSON (A.aesonDrop 3 A.snakeCase) ''PermissionMetric)
 
+data ActionMetric
+    = ActionMetric
+    { _amSynchronous  :: !Int
+    , _amAsynchronous :: !Int
+    , _amRelationships :: !Int
+    , _amCustomTypes   :: !Int
+    } deriving (Show, Eq)
+$(A.deriveToJSON (A.aesonDrop 3 A.snakeCase) ''ActionMetric)
+
 data Metrics
   = Metrics
   { _mtTables        :: !Int
@@ -64,6 +73,7 @@ data Metrics
   , _mtRemoteSchemas :: !Int
   , _mtFunctions     :: !Int
   , _mtServiceTimings :: !ServiceTimingMetrics
+  , _mtActions        :: !ActionMetric
   } deriving (Show, Eq)
 $(A.deriveToJSON (A.aesonDrop 3 A.snakeCase) ''Metrics)
 
@@ -153,6 +163,7 @@ computeMetrics sc _mtServiceTimings =
                     $ Map.map _tiEventTriggerInfoMap userTables
       _mtRemoteSchemas   = Map.size $ scRemoteSchemas sc
       _mtFunctions = Map.size $ Map.filter (not . isSystemDefined . fiSystemDefined) $ scFunctions sc
+      _mtActions = computeActionsMetrics (scActions sc)
 
   in Metrics{..}
 
@@ -166,6 +177,14 @@ computeMetrics sc _mtServiceTimings =
     permsOfTbl :: TableInfo -> [(RoleName, RolePermInfo)]
     permsOfTbl = Map.toList . _tiRolePermInfoMap
 
+computeActionsMetrics :: ActionCache -> ActionMetric
+computeActionsMetrics ac = ActionMetric syncActionsLen asyncActionsLen 0 customTypesLen
+  where actionsElems = Map.elems ac
+        syncActionsLen  = length . filter ((==ActionSynchronous) . _adKind . _aiDefinition) $ actionsElems
+        asyncActionsLen = (length actionsElems) - syncActionsLen
+        outputTypesLen = Set.size . Set.fromList . (map (_adOutputType . _aiDefinition)) $ actionsElems
+        inputTypesLen = Set.size . Set.fromList . concat .(map ((map _argType) . _adArguments . _aiDefinition)) $ actionsElems
+        customTypesLen = inputTypesLen + outputTypesLen
 
 -- | Logging related
 
