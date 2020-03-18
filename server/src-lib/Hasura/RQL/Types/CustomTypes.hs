@@ -57,7 +57,7 @@ import           Hasura.SQL.Types
 
 newtype GraphQLType
   = GraphQLType { unGraphQLType :: G.GType }
-  deriving (Show, Eq, Ord, Lift, Generic, NFData, Cacheable)
+  deriving (Show, Eq, Lift, Generic, NFData, Cacheable)
 
 instance J.ToJSON GraphQLType where
   toJSON = J.toJSON . GPrintText.render GPrint.graphQLType . unGraphQLType

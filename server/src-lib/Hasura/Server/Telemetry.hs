@@ -34,7 +34,6 @@ import qualified Data.Text                     as T
 import qualified Network.HTTP.Client           as HTTP
 import qualified Network.HTTP.Types            as HTTP
 import qualified Network.Wreq                  as Wreq
-import qualified Data.Set                      as Set
 import qualified Language.GraphQL.Draft.Syntax as G
 
 data RelationshipMetric
@@ -184,8 +183,8 @@ computeActionsMetrics ac ao = ActionMetric syncActionsLen asyncActionsLen typeRe
         syncActionsLen  = length . filter ((==ActionSynchronous) . _adKind . _aiDefinition) $ actionsElems
         asyncActionsLen = (length actionsElems) - syncActionsLen
         -- using set to get the distinct values because actions may share a custom type
-        outputTypesLen = Set.size . Set.fromList . (map (_adOutputType . _aiDefinition)) $ actionsElems
-        inputTypesLen = Set.size . Set.fromList . concat .(map ((map _argType) . _adArguments . _aiDefinition)) $ actionsElems
+        outputTypesLen = length . nub . (map (_adOutputType . _aiDefinition)) $ actionsElems
+        inputTypesLen = length . nub . concat . (map ((map _argType) . _adArguments . _aiDefinition)) $ actionsElems
         customTypesLen = inputTypesLen + outputTypesLen
         typeRelationships = sum . map ((getActionTypeRelationshipsCount ao) . _aiDefinition) $ actionsElems
 
