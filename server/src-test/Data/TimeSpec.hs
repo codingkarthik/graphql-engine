@@ -9,32 +9,32 @@ import           Test.Hspec
 
 spec :: Spec
 spec = do
-  timeAbsoluteUnitsSpec
+  --timeAbsoluteUnitsSpec
   timeCalendarUnitsSpec
   diffTimeSpec
 
-timeAbsoluteUnitsSpec :: Spec
-timeAbsoluteUnitsSpec =
-  describe "time absolute units" $ do
-    it "converts correctly" $ do
-      (seconds 123 :: Duration 'Absolute) `shouldBe` 123
-      (milliseconds 123 :: Duration 'Absolute) `shouldBe` 0.123
-      (microseconds 123 :: Duration 'Absolute) `shouldBe` 0.000123
-      (nanoseconds 123 :: Duration 'Absolute) `shouldBe` 0.000000123
+class TimeUnitsSpec t where
+  timeUnitSpec :: t -> Spec
+  timeUnitSpec t =
+    describe "time absolute units" $ do
+      it "converts correctly" $ do
+        (seconds 123 ::  t) `shouldBe` 123
+        (milliseconds 123 ::  t) `shouldBe` 0.123
+        (microseconds 123 ::  t) `shouldBe` 0.000123
+        (nanoseconds 123 ::  t) `shouldBe` 0.000000123
 
-    it "has a correct Read instance" $ do
-      (seconds (read "123") :: Duration 'Absolute) `shouldBe` 123
-      (milliseconds (read "123") :: Duration 'Absolute) `shouldBe` 0.123
-      (microseconds (read "123") :: Duration 'Absolute) `shouldBe` 0.000123
-      (nanoseconds (read "123") :: Duration 'Absolute) `shouldBe` 0.000000123
+      it "has a correct Read instance" $ do
+        (seconds (read "123") ::  t) `shouldBe` 123
+        (milliseconds (read "123") ::  t) `shouldBe` 0.123
+        (microseconds (read "123") ::  t) `shouldBe` 0.000123
+        (nanoseconds (read "123") ::  t) `shouldBe` 0.000000123
 
-    it "JSON serializes as proper units" $ do
-      toJSON (1 :: Seconds 'Absolute) `shouldBe` Number 1
-      decode "1.0" `shouldBe` Just (1 :: Seconds 'Absolute)
+deriving instance TimeUnitsSpec (Duration 'Absolute)
+deriving instance TimeUnitsSpec (Duration 'Calendar)
 
-    it "converts with fromUnits" $ do
-      fromUnits (2 :: Minutes 'Absolute) `shouldBe` (120 :: NominalDiffTime)
-      fromUnits (60 :: Seconds 'Absolute) `shouldBe` (1 :: Minutes 'Calendar)
+      -- it "JSON serializes as proper units" $ do
+      --   toJSON (1 :: Seconds t) `shouldBe` Number 1
+      --   decode "1.0" `shouldBe` Just (1 :: Seconds t)
 
 timeCalendarUnitsSpec :: Spec
 timeCalendarUnitsSpec =

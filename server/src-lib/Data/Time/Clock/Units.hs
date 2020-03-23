@@ -295,6 +295,10 @@ instance AsPicoseconds 'Calendar where
     fromPicoseconds = secondsToNominalDiffTime . toPico
     toFrac = realToFrac
 
+instance (KnownNat picosPerUnit, AsPicoseconds t) => Show (TimeUnit picosPerUnit t) where
+    showsPrec d (TimeUnit a) = showParen (d > 10) $
+      showString "TimeUnit " . showsPrec 11 (show . toPicoseconds $ a)
+
 instance (KnownNat picosPerUnit, AsPicoseconds t) => Eq (TimeUnit picosPerUnit t) where
     TimeUnit a == TimeUnit b = toPicoseconds a == toPicoseconds b
 
