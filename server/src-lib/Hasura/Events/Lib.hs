@@ -4,9 +4,11 @@ module Hasura.Events.Lib
   ( initEventEngineCtx
   , processEventQueue
   , unlockAllEvents
+  , unlockEvents
   , defaultMaxEventThreads
   , defaultFetchIntervalMilliSec
   , Event(..)
+  , EventEngineCtx(..)
   ) where
 
 import           Control.Concurrent.Extended   (sleep)
@@ -43,6 +45,7 @@ import qualified Database.PG.Query             as Q
 import qualified Hasura.Logging                as L
 import qualified Network.HTTP.Client           as HTTP
 import qualified Network.HTTP.Types            as HTTP
+import qualified Data.Set                      as Set
 
 type Version = T.Text
 
@@ -155,6 +158,7 @@ data EventEngineCtx
   = EventEngineCtx
   { _eeCtxEventThreadsCapacity  :: TVar Int
   , _eeCtxFetchInterval         :: DiffTime
+  , _eeCtxLockedEvents          :: TVar (Set.Set EventId)
   }
 
 defaultMaxEventThreads :: Int
@@ -169,6 +173,7 @@ retryAfterHeader = "Retry-After"
 initEventEngineCtx :: Int -> DiffTime -> STM EventEngineCtx
 initEventEngineCtx maxT _eeCtxFetchInterval = do
   _eeCtxEventThreadsCapacity <- newTVar maxT
+  _eeCtxLockedEvents <- newTVar Set.empty
   return $ EventEngineCtx{..}
 
 -- | Service events from our in-DB queue.
@@ -192,11 +197,21 @@ processEventQueue logger logenv httpMgr pool getSchemaCache EventEngineCtx{..} =
     popEventsBatch = do
       let run = runExceptT . Q.runTx pool (Q.RepeatableRead, Just Q.ReadWrite)
       run (fetchEvents fetchBatchSize) >>= \case
-          Left err -> do 
+          Left err -> do
             L.unLogger logger $ EventInternalErr err
             return []
-          Right events -> 
+          Right events -> do
+            saveLockedEvents events
             return events
+
+    saveLockedEvents :: [Event] -> IO ()
+    saveLockedEvents evts = do
+      liftIO $ atomically $ do
+        lockedEvents <- readTVar _eeCtxLockedEvents
+        let evtsIds = map eId evts
+        let newLockedEvents = Set.union lockedEvents (Set.fromList evtsIds)
+        writeTVar _eeCtxLockedEvents newLockedEvents
+
 
     -- work on this batch of events while prefetching the next. Recurse after we've forked workers
     -- for each in the batch, minding the requested pool size.
@@ -210,17 +225,20 @@ processEventQueue logger logenv httpMgr pool getSchemaCache EventEngineCtx{..} =
       -- worth the effort for something more fine-tuned
       eventsNext <- withAsync popEventsBatch $ \eventsNextA -> do
         -- process approximately in order, minding HASURA_GRAPHQL_EVENTS_HTTP_POOL_SIZE:
-        forM_ events $ \event -> 
+        forM_ events $ \event ->
           mask_ $ do
             atomically $ do  -- block until < HASURA_GRAPHQL_EVENTS_HTTP_POOL_SIZE threads:
               capacity <- readTVar _eeCtxEventThreadsCapacity
               check $ capacity > 0
-              writeTVar _eeCtxEventThreadsCapacity $! (capacity - 1) 
+              writeTVar _eeCtxEventThreadsCapacity $! (capacity - 1)
             -- since there is some capacity in our worker threads, we can launch another:
-            let restoreCapacity = liftIO $ atomically $ 
-                  modifyTVar' _eeCtxEventThreadsCapacity (+ 1)
-            t <- async $ flip runReaderT (logger, httpMgr) $ 
-                    processEvent event `finally` restoreCapacity
+            let restoreCapacity evt =
+                    liftIO $ atomically $
+                           do
+                             modifyTVar' _eeCtxEventThreadsCapacity (+ 1)
+                             modifyTVar' _eeCtxLockedEvents (Set.delete (eId evt))
+            t <- async $ flip runReaderT (logger, httpMgr) $
+                    processEvent event `finally` (restoreCapacity event)
             link t
 
         -- return when next batch ready; some 'processEvent' threads may be running.
@@ -545,3 +563,12 @@ unlockAllEvents =
 
 toInt64 :: (Integral a) => a -> Int64
 toInt64 = fromIntegral
+
+unlockEvents :: [EventId] -> Q.TxE QErr ()
+unlockEvents eventIds = do
+  Q.unitQE defaultTxErrorHandler
+   [Q.sql|
+     UPDATE hdb_catalog.event_triggers
+     SET locked = 'f'
+     WHERE id in $1
+   |] (Identity $ T.intercalate ", " eventIds) True

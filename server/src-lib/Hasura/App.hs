@@ -6,6 +6,7 @@ module Hasura.App where
 import           Control.Monad.Base
 import           Control.Monad.Stateless
 import           Control.Monad.STM                    (atomically)
+import           Control.Concurrent.STM.TVar          (readTVarIO)
 import           Control.Monad.Trans.Control          (MonadBaseControl (..))
 import           Data.Aeson                           ((.=))
 import           Data.Time.Clock                      (UTCTime, getCurrentTime)
@@ -241,15 +242,9 @@ runHGEServer ServeOptions{..} InitCtx{..} initTime = do
   liftIO $ logInconsObjs logger inconsObjs
 
   -- start background threads for schema sync
-  (_schemaSyncListenerThread, _schemaSyncProcessorThread) <- 
+  (_schemaSyncListenerThread, _schemaSyncProcessorThread) <-
     startSchemaSyncThreads sqlGenCtx _icPgPool logger _icHttpManager
                            cacheRef _icInstanceId cacheInitTime
-
-  let warpSettings = Warp.setPort soPort
-                     . Warp.setHost soHost
-                     . Warp.setGracefulShutdownTimeout (Just 30) -- 30s graceful shutdown
-                     . Warp.setInstallShutdownHandler (shutdownHandler logger shutdownApp)
-                     $ Warp.defaultSettings
 
   maxEvThrds <- liftIO $ getFromEnv defaultMaxEventThreads "HASURA_GRAPHQL_EVENTS_HTTP_POOL_SIZE"
   fetchI  <- fmap milliseconds $ liftIO $
@@ -257,7 +252,6 @@ runHGEServer ServeOptions{..} InitCtx{..} initTime = do
   logEnvHeaders <- liftIO $ getFromEnv False "LOG_HEADERS_FROM_ENV"
 
   -- prepare event triggers data
-  prepareEvents _icPgPool logger
   eventEngineCtx <- liftIO $ atomically $ initEventEngineCtx maxEvThrds fetchI
   unLogger logger $ mkGenericStrLog LevelInfo "event_triggers" "starting workers"
   _eventQueueThread <- C.forkImmortal "processEventQueue" logger $ liftIO $
@@ -282,13 +276,20 @@ runHGEServer ServeOptions{..} InitCtx{..} initTime = do
   let apiInitTime = realToFrac $ Clock.diffUTCTime finishTime initTime
   unLogger logger $
     mkGenericLog LevelInfo "server" $ StartupTimeInfo "starting API server" apiInitTime
+  let warpSettings = Warp.setPort soPort
+                     . Warp.setHost soHost
+                     . Warp.setGracefulShutdownTimeout (Just 30) -- 30s graceful shutdown
+                     . Warp.setInstallShutdownHandler (shutdownHandler logger shutdownApp eventEngineCtx _icPgPool)
+                     $ Warp.defaultSettings
   liftIO $ Warp.runSettings warpSettings app
 
   where
-    prepareEvents pool (Logger logger) = do
-      liftIO $ logger $ mkGenericStrLog LevelInfo "event_triggers" "preparing data"
-      res <- runTx pool unlockAllEvents
-      either printErrJExit return res
+    shutdownEvents :: Q.PGPool -> Logger Hasura -> EventEngineCtx -> IO ()
+    shutdownEvents pool (Logger logger) EventEngineCtx {..} = do
+      liftIO $ logger $ mkGenericStrLog LevelInfo "event_triggers" "unlocking events that are locked by the HGE"
+      lockedEvents <- readTVarIO _eeCtxLockedEvents
+      res <- runTx pool (unlockEvents $ toList lockedEvents)
+      either printErrJExit return res -- TODO: The Err should be printed but should not exit, (replace printErrJExit to something sensible)
 
     getFromEnv :: (Read a) => a -> String -> IO a
     getFromEnv defaults env = do
@@ -306,8 +307,8 @@ runHGEServer ServeOptions{..} InitCtx{..} initTime = do
     -- requests is already implemented in Warp, and is triggered by invoking the 'closeSocket' callback.
     -- We only catch the SIGTERM signal once, that is, if the user hits CTRL-C once again, we terminate
     -- the process immediately.
-    shutdownHandler :: Logger Hasura -> IO () -> IO () -> IO ()
-    shutdownHandler (Logger logger) shutdownApp closeSocket =
+    shutdownHandler :: Logger Hasura -> IO () -> EventEngineCtx -> Q.PGPool -> IO () -> IO ()
+    shutdownHandler (Logger logger) shutdownApp eeCtx pool closeSocket =
       void $ Signals.installHandler
         Signals.sigTERM
         (Signals.CatchOnce shutdownSequence)
@@ -316,6 +317,7 @@ runHGEServer ServeOptions{..} InitCtx{..} initTime = do
       shutdownSequence = do
         closeSocket
         shutdownApp
+        shutdownEvents pool (Logger logger) eeCtx
         logShutdown
 
       logShutdown = logger $ mkGenericStrLog LevelInfo "server" "gracefully shutting down server"
