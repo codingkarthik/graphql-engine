@@ -23,7 +23,6 @@ The delivery mechanism is similar to Event Triggers; see "Hasura.Eventing.EventT
 module Hasura.Eventing.ScheduledTrigger
   ( processScheduledQueue
   , runScheduledEventsGenerator
-
   , ScheduledEventSeed(..)
   , generateScheduleTimes
   , insertScheduledEvents
@@ -35,6 +34,7 @@ import           Data.Has
 import           Data.Int (Int64)
 import           Data.List                       (unfoldr)
 import           Data.Time.Clock
+import           Data.Time.LocalTime             (TimeZone(..),minutesToTimeZone)
 import           Hasura.Eventing.HTTP
 import           Hasura.Prelude
 import           Hasura.RQL.DDL.Headers
@@ -207,14 +207,28 @@ generateScheduledEventsFrom startTime ScheduledTriggerInfo{..} =
   let events =
         case stiSchedule of
           AdHoc _ -> empty -- ad-hoc scheduled events are created through 'create_scheduled_event' API
-          Cron cron -> generateScheduleTimes startTime 100 cron -- by default, generate next 100 events
-   in map (ScheduledEventSeed stiName) events
+
+          Cron cron tz -> generateScheduleTimes startTime tz 100 cron
+
+  in map (ScheduledEventSeed stiName) events
+
+addOffsetToUTCTime :: UTCTime -> TimeZone -> UTCTime
+addOffsetToUTCTime ut (TimeZone mins _ _) =
+  addUTCTime (realToFrac $ (mins * 60)) ut
 
 -- | Generates next @n events starting @from according to 'CronSchedule'
-generateScheduleTimes :: UTCTime -> Int -> CronSchedule -> [UTCTime]
-generateScheduleTimes from n cron = take n $ go from
+-- When Timezone is not Nothing, the offset will be added to the `from` value
+-- then the cron schedules are generated and then the offset will be subtracted
+-- from the generated timestamps.
+generateScheduleTimes :: UTCTime -> Maybe TimeZone ->  Int -> CronSchedule -> [UTCTime]
+generateScheduleTimes from timezone n cron =
+  case timezone of
+    Nothing ->   take n $ go from
+    Just tz@(TimeZone mins _ _) ->
+      map (\t -> addOffsetToUTCTime t (inverseTimeZone mins)) $ take n $ go $ addOffsetToUTCTime from tz
   where
     go = unfoldr (fmap dup . nextMatch cron)
+    inverseTimeZone mins = minutesToTimeZone (-1 * mins)
 
 processScheduledQueue
   :: HasVersion
