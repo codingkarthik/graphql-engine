@@ -292,12 +292,13 @@ runHGEServer ServeOptions{..} InitCtx{..} initTime = do
       liftIO $ logger $ mkGenericStrLog LevelInfo "event_triggers" "unlocking events that are locked by the HGE"
       lockedEvents <- readTVarIO _eeCtxLockedEvents
       liftIO $ do
-        when (not $ Set.null $ lockedEvents)
-             do
-               res <- runTx pool (unlockEvents $ toList lockedEvents)
-               case res of
-                 Left err ->  logger $ mkGenericStrLog LevelWarn "event_triggers" ("Error in unlocking the events " ++ (show err))
-                 Right cnt -> logger $ mkGenericStrLog LevelInfo "event_triggers" ((show $ cnt) ++ " events were updated")
+        when (not $ Set.null $ lockedEvents) $ do
+          res <- runExceptT $ Q.runTx pool (Q.ReadCommitted, Nothing) (unlockEvents $ toList lockedEvents)
+          case res of
+            Left err -> logger $ mkGenericStrLog
+                         LevelWarn "event_triggers" ("Error in unlocking the events " ++ (show err))
+            Right count -> logger $ mkGenericStrLog
+                            LevelInfo "event_triggers" ((show count) ++ " events were updated")
 
     getFromEnv :: (Read a) => a -> String -> IO a
     getFromEnv defaults env = do
@@ -308,13 +309,10 @@ runHGEServer ServeOptions{..} InitCtx{..} initTime = do
           eRes = maybe (Left $ "Wrong expected type for environment variable: " <> env) Right mRes
       either printErrExit return eRes
 
-    runTx pool tx =
-      liftIO $ runExceptT $ Q.runTx pool (Q.Serializable, Nothing) tx
-
     -- | Catches the SIGTERM signal and initiates a graceful shutdown. Graceful shutdown for regular HTTP
     -- requests is already implemented in Warp, and is triggered by invoking the 'closeSocket' callback.
-    -- We only catch the SIGTERM signal once, that is, if the user hits CTRL-C once again, we terminate
-    -- the process immediately.
+    -- We only catch the SIGTERM signal once, that is, if we catch another SIGTERM signal then the pr
+    -- If the user hits CTRL-C (SIGINT), then the process is terminated immediately
     shutdownHandler :: Logger Hasura -> IO () -> EventEngineCtx -> Q.PGPool -> IO () -> IO ()
     shutdownHandler (Logger logger) shutdownApp eeCtx pool closeSocket =
       void $ Signals.installHandler
