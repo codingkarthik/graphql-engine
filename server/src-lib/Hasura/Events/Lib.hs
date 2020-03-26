@@ -3,7 +3,6 @@
 module Hasura.Events.Lib
   ( initEventEngineCtx
   , processEventQueue
-  , unlockAllEvents
   , unlockEvents
   , defaultMaxEventThreads
   , defaultFetchIntervalMilliSec
@@ -553,22 +552,21 @@ setRetry e time =
           WHERE id = $2
           |] (time, eId e) True
 
-unlockAllEvents :: Q.TxE QErr ()
-unlockAllEvents =
-  Q.unitQE defaultTxErrorHandler [Q.sql|
-          UPDATE hdb_catalog.event_log
-          SET locked = 'f'
-          WHERE locked = 't'
-          |] () False
+unlockEvent :: EventId -> Q.TxE QErr Int
+unlockEvent eventId =
+   (runIdentity . Q.getRow) <$> Q.withQE defaultTxErrorHandler
+   [Q.sql|
+     WITH "cte" AS
+     (UPDATE hdb_catalog.event_log
+     SET locked = 'f'
+     WHERE id = $1 RETURNING *)
+     SELECT count(*) FROM "cte"
+   |] (Identity eventId) False
 
 toInt64 :: (Integral a) => a -> Int64
 toInt64 = fromIntegral
 
-unlockEvents :: [EventId] -> Q.TxE QErr ()
+-- TODO: Instead of returning an array of Ints it should return the sum of all the ints
+unlockEvents :: [EventId] -> Q.TxE QErr [Int]
 unlockEvents eventIds = do
-  Q.unitQE defaultTxErrorHandler
-   [Q.sql|
-     UPDATE hdb_catalog.event_triggers
-     SET locked = 'f'
-     WHERE id in $1
-   |] (Identity $ T.intercalate ", " eventIds) True
+  mapM unlockEvent eventIds

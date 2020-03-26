@@ -29,6 +29,7 @@ import qualified Network.HTTP.Client.TLS              as HTTP
 import qualified Network.Wai.Handler.Warp             as Warp
 import qualified System.Posix.Signals                 as Signals
 import qualified Text.Mustache.Compile                as M
+import qualified Data.Set                             as Set
 
 import           Hasura.Db
 import           Hasura.EncJSON
@@ -288,8 +289,11 @@ runHGEServer ServeOptions{..} InitCtx{..} initTime = do
     shutdownEvents pool (Logger logger) EventEngineCtx {..} = do
       liftIO $ logger $ mkGenericStrLog LevelInfo "event_triggers" "unlocking events that are locked by the HGE"
       lockedEvents <- readTVarIO _eeCtxLockedEvents
-      res <- runTx pool (unlockEvents $ toList lockedEvents)
-      either printErrJExit return res -- TODO: The Err should be printed but should not exit, (replace printErrJExit to something sensible)
+      when (not $ Set.null $ lockedEvents) $ do
+        res <- runTx pool (unlockEvents $ toList lockedEvents)
+        case res of
+          Left err -> putStrLn ("Error in unlocking the events " ++ (show err))
+          Right cnt -> putStrLn ((show . length $ cnt) ++ " events were updated")
 
     getFromEnv :: (Read a) => a -> String -> IO a
     getFromEnv defaults env = do
@@ -315,9 +319,9 @@ runHGEServer ServeOptions{..} InitCtx{..} initTime = do
         Nothing
      where
       shutdownSequence = do
+        shutdownEvents pool (Logger logger) eeCtx
         closeSocket
         shutdownApp
-        shutdownEvents pool (Logger logger) eeCtx
         logShutdown
 
       logShutdown = logger $ mkGenericStrLog LevelInfo "server" "gracefully shutting down server"
