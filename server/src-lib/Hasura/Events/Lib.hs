@@ -184,8 +184,7 @@ initEventEngineCtx maxT _eeCtxFetchInterval = do
 -- There are a few competing concerns and constraints here; we want to...
 --   - fetch events in batches for lower DB pressure
 --   - don't fetch more than N at a time (since that can mean: space leak, less
---     effective scale out, possible double sends for events we've checked out 
---     on exit (TODO clean shutdown procedure))
+--     effective scale out
 --   - try not to cause webhook workers to stall waiting on DB fetch
 --   - limit webhook HTTP concurrency per HASURA_GRAPHQL_EVENTS_HTTP_POOL_SIZE
 processEventQueue
@@ -207,6 +206,9 @@ processEventQueue logger logenv httpMgr pool getSchemaCache EventEngineCtx{..} =
             saveLockedEvents events
             return events
 
+    -- After the events are fetched from the DB, we store the locked events
+    -- in a hash set(order doesn't matter and look ups are faster) in the
+    -- event engine context
     saveLockedEvents :: [Event] -> IO ()
     saveLockedEvents evts =
       liftIO $ atomically $ do
@@ -239,6 +241,8 @@ processEventQueue logger logenv httpMgr pool getSchemaCache EventEngineCtx{..} =
                     liftIO $ atomically $
                            do
                              modifyTVar' _eeCtxEventThreadsCapacity (+ 1)
+                             -- After the event has been processed, remove it from the
+                             -- locked events cache
                              modifyTVar' _eeCtxLockedEvents (Set.delete (eId evt))
             t <- async $ flip runReaderT (logger, httpMgr) $
                     processEvent event `finally` (restoreCapacity event)

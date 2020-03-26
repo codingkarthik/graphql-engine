@@ -285,6 +285,8 @@ runHGEServer ServeOptions{..} InitCtx{..} initTime = do
   liftIO $ Warp.runSettings warpSettings app
 
   where
+    -- | shutdownEvents will be triggered when a graceful shutdown has been inititiated, it will
+    -- get the locked events from the event engine context and then it will unlock all those events.
     shutdownEvents :: Q.PGPool -> Logger Hasura -> EventEngineCtx -> IO ()
     shutdownEvents pool (Logger logger) EventEngineCtx {..} = do
       liftIO $ logger $ mkGenericStrLog LevelInfo "event_triggers" "unlocking events that are locked by the HGE"
