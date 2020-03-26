@@ -31,6 +31,10 @@ import           Hasura.RQL.Types
 import           Hasura.Server.Version         (HasVersion)
 import           Hasura.SQL.Types
 
+-- remove these when array encoding is merged
+import qualified Database.PG.Query.PTI         as PTI
+import qualified PostgreSQL.Binary.Encoding    as PE
+
 import qualified Data.ByteString               as BS
 import qualified Data.CaseInsensitive          as CI
 import qualified Data.HashMap.Strict           as M
@@ -204,7 +208,7 @@ processEventQueue logger logenv httpMgr pool getSchemaCache EventEngineCtx{..} =
             return events
 
     saveLockedEvents :: [Event] -> IO ()
-    saveLockedEvents evts = do
+    saveLockedEvents evts =
       liftIO $ atomically $ do
         lockedEvents <- readTVar _eeCtxLockedEvents
         let evtsIds = map eId evts
@@ -552,21 +556,25 @@ setRetry e time =
           WHERE id = $2
           |] (time, eId e) True
 
-unlockEvent :: EventId -> Q.TxE QErr Int
-unlockEvent eventId =
+toInt64 :: (Integral a) => a -> Int64
+toInt64 = fromIntegral
+
+-- EventIdArray is only used for PG array encoding
+newtype EventIdArray = EventIdArray { unEventIdArray :: [EventId]} deriving (Show, Eq)
+
+instance Q.ToPrepArg EventIdArray where
+  toPrepVal (EventIdArray l) = Q.toPrepValHelper PTI.unknown encoder $ l
+    where
+      -- 25 is the OID value of TEXT, https://jdbc.postgresql.org/development/privateapi/constant-values.html
+      encoder = PE.array 25 . PE.dimensionArray foldl' (PE.encodingArray . PE.text_strict)
+
+unlockEvents :: [EventId] -> Q.TxE QErr Int
+unlockEvents eventIds =
    (runIdentity . Q.getRow) <$> Q.withQE defaultTxErrorHandler
    [Q.sql|
      WITH "cte" AS
      (UPDATE hdb_catalog.event_log
      SET locked = 'f'
-     WHERE id = $1 RETURNING *)
+     WHERE id = ANY($1::text[]) RETURNING *)
      SELECT count(*) FROM "cte"
-   |] (Identity eventId) False
-
-toInt64 :: (Integral a) => a -> Int64
-toInt64 = fromIntegral
-
--- TODO: Instead of returning an array of Ints it should return the sum of all the ints
-unlockEvents :: [EventId] -> Q.TxE QErr [Int]
-unlockEvents eventIds = do
-  mapM unlockEvent eventIds
+   |] (Identity $ EventIdArray eventIds) True

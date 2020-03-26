@@ -289,11 +289,13 @@ runHGEServer ServeOptions{..} InitCtx{..} initTime = do
     shutdownEvents pool (Logger logger) EventEngineCtx {..} = do
       liftIO $ logger $ mkGenericStrLog LevelInfo "event_triggers" "unlocking events that are locked by the HGE"
       lockedEvents <- readTVarIO _eeCtxLockedEvents
-      when (not $ Set.null $ lockedEvents) $ do
-        res <- runTx pool (unlockEvents $ toList lockedEvents)
-        case res of
-          Left err -> putStrLn ("Error in unlocking the events " ++ (show err))
-          Right cnt -> putStrLn ((show . length $ cnt) ++ " events were updated")
+      liftIO $ do
+        when (not $ Set.null $ lockedEvents)
+             do
+               res <- runTx pool (unlockEvents $ toList lockedEvents)
+               case res of
+                 Left err ->  logger $ mkGenericStrLog LevelWarn "event_triggers" ("Error in unlocking the events " ++ (show err))
+                 Right cnt -> logger $ mkGenericStrLog LevelInfo "event_triggers" ((show $ cnt) ++ " events were updated")
 
     getFromEnv :: (Read a) => a -> String -> IO a
     getFromEnv defaults env = do
