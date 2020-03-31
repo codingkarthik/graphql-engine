@@ -10,3 +10,4 @@ args:
   args:
     sql: |
       drop table hge_tests.test_t1
+    skip_cache_reload: false

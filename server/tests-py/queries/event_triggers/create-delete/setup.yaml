@@ -7,3 +7,4 @@ args:
           c1 int,
           c2 text
       );
+    skip_cache_reload: false

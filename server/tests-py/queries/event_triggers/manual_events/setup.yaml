@@ -7,6 +7,7 @@ args:
           c1 int,
           c2 text
       );
+    skip_cache_reload: false
 - type: track_table
   args:
     schema: hge_tests
