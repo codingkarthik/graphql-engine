@@ -9,6 +9,7 @@ args:
         email TEXT NOT NULL,
         is_admin BOOLEAN NOT NULL DEFAULT false
       );
+    skip_cache_reload: false
 
 - type: track_table
   args:

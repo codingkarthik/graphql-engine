@@ -5,6 +5,7 @@ args:
     sql: |
       CREATE TABLE test (id serial primary key, name text);
       INSERT INTO test (name) values ('Gzip'), ('Brotli'), ('Nothing');
+    skip_cache_reload: false
 - type: track_table
   args:
     schema: public

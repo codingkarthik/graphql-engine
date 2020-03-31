@@ -13,3 +13,4 @@ args:
     cascade: true
     sql: |
       DROP TABLE "user";
+    skip_cache_reload: false
