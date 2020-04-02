@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 module Hasura.RQL.Types.Action
   ( ArgumentName(..)
   , ArgumentDefinition(..)
@@ -102,7 +103,7 @@ data ActionDefinition a
   = ActionDefinition
   { _adArguments            :: ![ArgumentDefinition]
   , _adOutputType           :: !GraphQLType
-  , _adKind                 :: !ActionKind
+  , _adKind                 :: !(Maybe ActionKind)
   , _adHeaders              :: ![HeaderConf]
   , _adForwardClientHeaders :: !Bool
   , _adHandler              :: !a
@@ -113,15 +114,19 @@ instance (Cacheable a) => Cacheable (ActionDefinition a)
 $(J.deriveToJSON (J.aesonDrop 3 J.snakeCase) ''ActionDefinition)
 
 instance (J.FromJSON a) => J.FromJSON (ActionDefinition a) where
-  parseJSON = J.withObject "ActionDefinition" $ \o ->
-    ActionDefinition
-      <$> o J..:  "arguments"
-      <*> o J..:  "output_type"
-      <*> o J..:? "kind" J..!= ActionSynchronous -- Synchronous is default action kind
-      <*> o J..:? "headers" J..!= []
-      <*> o J..:? "forward_client_headers" J..!= False
-      <*> o J..:  "handler"
-      <*> o J..:? "type" J..!= ActionMutation
+  parseJSON = J.withObject "ActionDefinition" $ \o -> do
+    _adArguments <- o J..:  "arguments"
+    _adOutputType <- o J..:  "output_type"
+    _adHeaders <- o J..:f? "headers" J..!= []
+    _adForwardClientHeaders <- o J..:? "forward_client_headers" J..!= False
+    _adHandler <- o J..:  "handler"
+    _adType <- o J..:? "type" J..!= ActionMutation
+    _adKind <-
+      case _adType of
+        ActionMutation -> o J..:? "kind" J..!= Just ActionSynchronous
+        ActionQuery -> return Nothing
+    return ActionDefinition {..}
+
 
 type ResolvedActionDefinition = ActionDefinition ResolvedWebhook
 

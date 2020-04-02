@@ -56,15 +56,15 @@ mkMutationField
   :: ActionName
   -> ActionInfo
   -> [(PGCol, PGScalarType)]
-  -> (ActionExecutionContext, ObjFldInfo)
+  -> Maybe (ActionExecutionContext, ObjFldInfo)
 mkMutationField actionName actionInfo definitionList =
-  ( actionExecutionContext
-  , fieldInfo
-  )
+  case _adKind definition of
+    Just defn -> Just ( actionExecutionContext defn, fieldInfo defn)
+    Nothing -> Nothing
   where
     definition = _aiDefinition actionInfo
-    actionExecutionContext =
-      case _adKind definition of
+    actionExecutionContext defn =
+      case defn of
         ActionSynchronous  ->
           ActionExecutionSyncWebhook $ SyncActionExecutionContext actionName
           (_adOutputType definition)
@@ -78,19 +78,19 @@ mkMutationField actionName actionInfo definitionList =
     description = mkDescriptionWith (PGDescription <$> (_aiComment actionInfo)) $
                   "perform the action: " <>> actionName
 
-    fieldInfo =
+    fieldInfo defn =
       mkHsraObjFldInfo
       (Just description)
       (unActionName actionName)
       (mapFromL _iviName $ map mkActionArgument $ _adArguments definition)
-      actionFieldResponseType
+      (actionFieldResponseType defn)
 
     mkActionArgument argument =
       InpValInfo (_argDescription argument) (unArgumentName $ _argName argument)
       Nothing $ unGraphQLType $ _argType argument
 
-    actionFieldResponseType =
-      case _adKind definition of
+    actionFieldResponseType defn =
+      case defn of
         ActionSynchronous  -> unGraphQLType $ _adOutputType definition
         ActionAsynchronous -> G.toGT $ G.toNT $ mkScalarTy PGUUID
 
@@ -102,7 +102,7 @@ mkQueryField
   -> Maybe (ActionSelectOpContext, ObjFldInfo, TypeInfo)
 mkQueryField actionName comment definition definitionList =
   case _adKind definition of
-    ActionAsynchronous ->
+    Just ActionAsynchronous ->
       Just ( ActionSelectOpContext (_adOutputType definition) definitionList
 
            , mkHsraObjFldInfo (Just description) (unActionName actionName)
@@ -112,7 +112,8 @@ mkQueryField actionName comment definition definitionList =
            , TIObj $ mkAsyncActionQueryResponseObj actionName $
              _adOutputType definition
            )
-    ActionSynchronous -> Nothing
+    Just ActionSynchronous -> Nothing
+    Nothing -> Nothing
   where
     description = mkDescriptionWith (PGDescription <$> comment) $
                   "retrieve the result of action: " <>> actionName
@@ -129,7 +130,7 @@ mkActionFieldsAndTypes
   -> ActionPermissionInfo
   -> m ( Maybe (ActionSelectOpContext, ObjFldInfo, TypeInfo)
        -- context, field, response type info
-     , (ActionExecutionContext, ObjFldInfo) -- mutation field
+     , Maybe (ActionExecutionContext, ObjFldInfo) -- mutation field
      , FieldMap
      )
 mkActionFieldsAndTypes actionInfo annotatedOutputType permission =
@@ -225,7 +226,7 @@ mkActionSchemaOne
   -> ActionInfo
   -> m (Map.HashMap RoleName
          ( Maybe (ActionSelectOpContext, ObjFldInfo, TypeInfo)
-         , (ActionExecutionContext, ObjFldInfo)
+         , Maybe (ActionExecutionContext, ObjFldInfo)
          , FieldMap
          )
        )
