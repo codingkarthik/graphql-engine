@@ -484,7 +484,7 @@ replaceMetadataToOrdJSON ( ReplaceMetadata
                    ]
       where
         actionDefinitionToOrdJSON :: ActionDefinitionInput -> AO.Value
-        actionDefinitionToOrdJSON (ActionDefinition args outputType kind headers frwrdClientHdrs actionType handler) =
+        actionDefinitionToOrdJSON (ActionDefinition args outputType kind headers frwrdClientHdrs handler actionType) =
           AO.object $ [ ("kind", AO.toOrdered kind)
                       , ("handler", AO.toOrdered handler)
                       , ("arguments", AO.array $ map argDefinitionToOrdJSON args)

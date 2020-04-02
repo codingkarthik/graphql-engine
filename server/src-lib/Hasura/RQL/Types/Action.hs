@@ -105,8 +105,8 @@ data ActionDefinition a
   , _adKind                 :: !ActionKind
   , _adHeaders              :: ![HeaderConf]
   , _adForwardClientHeaders :: !Bool
-  , _adType                 :: !ActionType
   , _adHandler              :: !a
+  , _adType                 :: !ActionType
   } deriving (Show, Eq, Lift, Functor, Foldable, Traversable, Generic)
 instance (NFData a) => NFData (ActionDefinition a)
 instance (Cacheable a) => Cacheable (ActionDefinition a)
@@ -120,8 +120,8 @@ instance (J.FromJSON a) => J.FromJSON (ActionDefinition a) where
       <*> o J..:? "kind" J..!= ActionSynchronous -- Synchronous is default action kind
       <*> o J..:? "headers" J..!= []
       <*> o J..:? "forward_client_headers" J..!= False
-      <*> o J..:? "type" J..!= ActionMutation
       <*> o J..:  "handler"
+      <*> o J..:? "type" J..!= ActionMutation
 
 type ResolvedActionDefinition = ActionDefinition ResolvedWebhook
 
