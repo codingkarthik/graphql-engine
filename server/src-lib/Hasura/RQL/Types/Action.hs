@@ -5,6 +5,7 @@ module Hasura.RQL.Types.Action
   , ActionName(..)
   , ActionKind(..)
   , ActionDefinition(..)
+  , ActionType(..)
   , CreateAction(..)
   , UpdateAction(..)
   , ActionDefinitionInput
@@ -87,6 +88,16 @@ instance NFData ArgumentDefinition
 instance Cacheable ArgumentDefinition
 $(J.deriveJSON (J.aesonDrop 4 J.snakeCase) ''ArgumentDefinition)
 
+data ActionType
+  = ActionQuery
+  | ActionMutation
+  deriving (Show, Eq, Lift, Generic)
+instance NFData ActionType
+instance Cacheable ActionType
+$(J.deriveJSON
+  J.defaultOptions { J.constructorTagModifier = J.snakeCase . drop 6}
+  ''ActionType)
+
 data ActionDefinition a
   = ActionDefinition
   { _adArguments            :: ![ArgumentDefinition]
@@ -94,6 +105,7 @@ data ActionDefinition a
   , _adKind                 :: !ActionKind
   , _adHeaders              :: ![HeaderConf]
   , _adForwardClientHeaders :: !Bool
+  , _adType                 :: !ActionType
   , _adHandler              :: !a
   } deriving (Show, Eq, Lift, Functor, Foldable, Traversable, Generic)
 instance (NFData a) => NFData (ActionDefinition a)
@@ -108,6 +120,7 @@ instance (J.FromJSON a) => J.FromJSON (ActionDefinition a) where
       <*> o J..:? "kind" J..!= ActionSynchronous -- Synchronous is default action kind
       <*> o J..:? "headers" J..!= []
       <*> o J..:? "forward_client_headers" J..!= False
+      <*> o J..:? "type" J..!= ActionMutation
       <*> o J..:  "handler"
 
 type ResolvedActionDefinition = ActionDefinition ResolvedWebhook
