@@ -14,7 +14,7 @@ const {
   isScalarType,
 } = require('graphql');
 const { camelize } = require('inflection');
-import { getPersistedDerivedMutation } from '../lsUtils';
+import { getPersistedDerivedAction } from '../lsUtils';
 
 export const getCodegenFilePath = framework => {
   return `${globals.assetsPath}/common/codegen/${framework}/actions-codegen.js`;
@@ -40,7 +40,6 @@ export const getAllCodegenFrameworks = () => {
 };
 
 export const getCodegenFunc = framework => {
-  process.hrtime = () => null;
   return fetch(getCodegenFilePath(framework))
     .then(r => r.text())
     .then(rawJsString => {
@@ -59,12 +58,12 @@ export const getFrameworkCodegen = (
   framework,
   actionName,
   actionsSdl,
-  parentMutation
+  parentOperation
 ) => {
   return getCodegenFunc(framework)
     .then(codegenerator => {
       const derive = {
-        operation: parentMutation,
+        operation: parentOperation,
         endpoint: endpoints.graphQLUrl,
       };
       const codegenFiles = codegenerator(actionName, actionsSdl, derive);

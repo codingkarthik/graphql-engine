@@ -9,6 +9,7 @@ import           Control.Monad.STM                    (atomically)
 import           Control.Monad.Trans.Control          (MonadBaseControl (..))
 import           Data.Aeson                           ((.=))
 import           Data.Time.Clock                      (UTCTime, getCurrentTime)
+import           GHC.AssertNF
 import           Options.Applicative
 import           System.Environment                   (getEnvironment, lookupEnv)
 import           System.Exit                          (exitFailure)
@@ -112,6 +113,7 @@ data InitCtx
   , _icLoggers     :: !Loggers
   , _icConnInfo    :: !Q.ConnInfo
   , _icPgPool      :: !Q.PGPool
+  , _icPgVersion   :: !PGVersion
   }
 
 -- | Collection of the LoggerCtx, the regular Logger and the PGLogger
@@ -163,10 +165,13 @@ initialiseCtx hgeCmd rci = do
       return (l, pool)
 
   -- get the unique db id
-  eDbId <- liftIO $ runExceptT $ Q.runTx pool (Q.Serializable, Nothing) getDbId
-  dbId <- either printErrJExit return eDbId
+  dbId <- liftIO $ runTxIO pool (Q.Serializable, Nothing) getDbId
 
-  return (InitCtx httpManager instanceId dbId loggers connInfo pool, initTime)
+  -- get the pg version
+  pgVersion <- liftIO $ runTxIO pool (Q.ReadCommitted, Nothing) getPgVersion
+
+  return (InitCtx httpManager instanceId dbId loggers connInfo pool pgVersion, initTime)
+
   where
     procConnInfo =
       either (printErrExit . connInfoErrModifier) return $ mkConnInfo rci
@@ -187,6 +192,12 @@ initialiseCtx hgeCmd rci = do
       initRes <- runAsAdmin pool sqlGenCtx httpManager $ migrateCatalog currentTime
       either printErrJExit (\(result, schemaCache) -> logger result $> schemaCache) initRes
 
+-- | Run a transaction and if an error is encountered, log the error and abort the program
+runTxIO :: Q.PGPool -> Q.TxMode -> Q.TxE QErr a -> IO a
+runTxIO pool isoLevel tx = do
+  eVal <- liftIO $ runExceptT $ Q.runTx pool isoLevel tx
+  either printErrJExit return eVal
+
 runHGEServer
   :: ( HasVersion
      , MonadIO m
@@ -203,6 +214,13 @@ runHGEServer
   -- ^ start time
   -> m ()
 runHGEServer ServeOptions{..} InitCtx{..} initTime = do
+  -- Comment this to enable expensive assertions from "GHC.AssertNF". These will log lines to 
+  -- STDOUT containing "not in normal form". In the future we could try to integrate this into
+  -- our tests. For now this is a development tool.
+  --
+  -- NOTE: be sure to compile WITHOUT code coverage, for this to work properly.
+  liftIO disableAssertNF
+
   let sqlGenCtx = SQLGenCtx soStringifyNum
       Loggers loggerCtx logger _ = _icLoggers
 
@@ -267,8 +285,8 @@ runHGEServer ServeOptions{..} InitCtx{..} initTime = do
   -- start a background thread for telemetry
   when soEnableTelemetry $ do
     unLogger logger $ mkGenericStrLog LevelInfo "telemetry" telemetryNotice
-    void $ C.forkImmortal "runTelemetry" logger $ liftIO $ 
-      runTelemetry logger _icHttpManager (getSCFromRef cacheRef) _icDbUid _icInstanceId
+    void $ C.forkImmortal "runTelemetry" logger $ liftIO $
+      runTelemetry logger _icHttpManager (getSCFromRef cacheRef) _icDbUid _icInstanceId _icPgVersion
 
   finishTime <- liftIO Clock.getCurrentTime
   let apiInitTime = realToFrac $ Clock.diffUTCTime finishTime initTime
