@@ -1,0 +1,54 @@
+{
+  "cpu": {
+    "info": {
+      "cpuinfo_version": [
+        5,
+        0,
+        0
+      ],
+      "arch": "X86_64",
+      "bits": 64,
+      "count": 4,
+      "raw_arch_string": "x86_64",
+      "vendor_id": "GenuineIntel",
+      "brand": "Intel(R) Core(TM) i5-5350U CPU @ 1.80GHz",
+      "hz_advertised": "1.8000 GHz",
+      "hz_advertised_raw": [
+        1800000000,
+        0
+      ],
+      "l2_cache_size": "256",
+      "stepping": 4,
+      "model": 61,
+      "family": 6,
+      "l2_cache_line_size": 6,
+      "l2_cache_associativity": "0x100",
+      "extended_model": 3
+    },
+    "key": "Intel(R) Core(TM) i5-5350U CPU @ 1.80GHz vCPUs: 4"
+  },
+  "query": {
+    "name": "remote_one_row",
+    "query": "query remote_one_row {\n  remote_hge_events_by_pk(id: 1) {\n    id\n    attendance\n    duration\n    event_status\n    last_update\n    publisher {\n      id\n      publisher_name\n    }\n  }\n}"
+  },
+  "version": "remote-relationships-benchmark-9320833d-dirty-b65625b1",
+  "server_shasum": "c6b7da2a",
+  "postgres_version": "PostgreSQL 12.2",
+  "hge_conf": {
+    "env": {
+      "HASURA_GRAPHQL_ENABLE_TELEMETRY": "false",
+      "HASURA_GRAPHQL_STRINGIFY_NUMERIC_TYPES": "true",
+      "HASURA_GRAPHQL_CONSOLE_ASSETS_DIR": "../../console/static/dist/",
+      "HASURA_GRAPHQL_ENABLE_CONSOLE": "true",
+      "HASURA_GRAPHQL_SERVER_PORT": "8081",
+      "HASURA_GRAPHQL_SERVER_HOST": "127.0.0.1"
+    },
+    "args": []
+  },
+  "requests_per_sec": 20,
+  "wrk2_parameters": {
+    "threads": 4,
+    "connections": 50,
+    "duration": "50"
+  }
+}
