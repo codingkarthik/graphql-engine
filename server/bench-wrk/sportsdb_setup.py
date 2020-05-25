@@ -260,7 +260,7 @@ class HGETestSetupArgs:
         self.hge_args =  self.parsed_args.hge_args[1:]
 
     def set_pg_options(self):
-        pg_opts = self.arg_parser.add_argument_group('Postgres').add_mutually_exclusive_group()
+        pg_opts = self.arg_parser.add_argument_group('Postgres')#.add_mutually_exclusive_group()
         pg_opts.add_argument('--pg-url', metavar='HASURA_BENCH_PG_URLS', help='Postgres database url to be used for tests', required=False)
         pg_opts.add_argument('--remote-pg-url', metavar='HASURA_BENCH_REMOTE_PG_URLS', help='Url of Postgres database which is attached/has to be attached, with remote graphql-engine', required=False)
         pg_opts.add_argument('--pg-docker-image', metavar='HASURA_BENCH_PG_DOCKER_IMAGE', help='Postgres docker image to be used for tests', required=False)

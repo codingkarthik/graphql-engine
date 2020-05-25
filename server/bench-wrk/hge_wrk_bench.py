@@ -95,7 +95,7 @@ class HGEWrkBench(HGETestSetup):
         params = self.get_wrk2_params()
         print(Fore.GREEN + "Running benchmark wrk2 for at {} req/s (duration: {}) for query\n".format(rps, params['duration']), query_str +  Style.RESET_ALL)
         bench_script = os.path.join(self.lua_dir, 'bench-wrk2.lua')
-        graphql_url = self.hge.url + '/v1/graphql'
+        graphql_url = "http://host.docker.internal:8081/v1/graphql"
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         results_dir = self.results_root_dir
         tests_path = [str(rps), timestamp]
@@ -232,7 +232,8 @@ class HGEWrkBench(HGETestSetup):
         print(Fore.GREEN + "(Compute maximum Request per second) Running wrk benchmark for query\n", query_str + Style.RESET_ALL)
         self.hge.graphql_q(query_str) # Test query once for errors
         bench_script = os.path.join(self.lua_dir + '/bench-wrk.lua')
-        graphql_url = self.hge.url + '/v1/graphql'
+        graphql_url = "http://host.docker.internal:8081/v1/graphql"
+        print ("^^^^^^^^^^^", graphql_url)
         params = self.get_wrk2_params()
         duration = 30
         wrk_command = [
@@ -252,7 +253,7 @@ class HGEWrkBench(HGETestSetup):
             stdout = False,
             stderr = True,
             command = wrk_command,
-            network_mode = 'host',
+            #network_mode = 'host',
             environment = self.get_lua_env(),
             volumes = self.get_scripts_vol(),
             remove = True,
@@ -546,4 +547,3 @@ class HGEWrkBenchWithArgs(HGEWrkBenchArgs, HGEWrkBench):
 if __name__ == "__main__":
     bench = HGEWrkBenchWithArgs()
     bench.run_tests()
-
