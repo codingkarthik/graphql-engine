@@ -380,6 +380,8 @@ recreateSystemMetadata = do
           manualConfig "hdb_catalog" "hdb_check_constraint" tableNameMapping
         , arrayRel $$(nonEmptyText "unique_constraints") $
           manualConfig "hdb_catalog" "hdb_unique_constraint" tableNameMapping
+        , arrayRel $$(nonEmptyText "remote_relationships") $
+          manualConfig "hdb_catalog" "hdb_remote_relationship" tableNameMapping
         ]
       , table "hdb_catalog" "hdb_primary_key" []
       , table "hdb_catalog" "hdb_foreign_key_constraint" []
