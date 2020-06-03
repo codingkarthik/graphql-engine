@@ -37,6 +37,7 @@ data RemoteSchemaInfo
   , rsHeaders          :: ![HeaderConf]
   , rsFwdClientHeaders :: !Bool
   , rsTimeoutSeconds   :: !Int
+  , rsPrefix           :: !(Maybe Text)
   } deriving (Show, Eq, Lift, Generic)
 instance NFData RemoteSchemaInfo
 instance Cacheable RemoteSchemaInfo
@@ -101,10 +102,10 @@ validateRemoteSchemaDef
 validateRemoteSchemaDef rsName (RemoteSchemaDef mUrl mUrlEnv hdrC fwdHdrs mTimeout) =
   case (mUrl, mUrlEnv) of
     (Just url, Nothing)    ->
-      return $ RemoteSchemaInfo rsName url hdrs fwdHdrs timeout
+      return $ RemoteSchemaInfo rsName url hdrs fwdHdrs timeout (Just "bhai_")
     (Nothing, Just urlEnv) -> do
       url <- getUrlFromEnv urlEnv
-      return $ RemoteSchemaInfo rsName url hdrs fwdHdrs timeout
+      return $ RemoteSchemaInfo rsName url hdrs fwdHdrs timeout (Just "bhai_")
     (Nothing, Nothing)     ->
         throw400 InvalidParams "both `url` and `url_from_env` can't be empty"
     (Just _, Just _)       ->

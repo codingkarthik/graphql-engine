@@ -25,6 +25,7 @@ import           Hasura.RQL.Types
 import           Hasura.Server.Utils
 import           Hasura.Server.Version                  (HasVersion)
 import           Hasura.Session
+import Debug.Trace
 
 import qualified Hasura.GraphQL.Context                 as GC
 import qualified Hasura.GraphQL.Schema                  as GS
@@ -44,7 +45,7 @@ introspectionQuery =
 fetchRemoteSchema
   :: (HasVersion, MonadIO m, MonadError QErr m)
   => HTTP.Manager -> RemoteSchemaInfo -> m GC.RemoteGCtx
-fetchRemoteSchema manager def@(RemoteSchemaInfo name url headerConf _ timeout) = do
+fetchRemoteSchema manager def@(RemoteSchemaInfo name url headerConf _ timeout prefix) = do
   headers <- makeHeadersFromConf headerConf
   let hdrsWithDefaults = addDefaultHeaders headers
 
@@ -77,7 +78,16 @@ fetchRemoteSchema manager def@(RemoteSchemaInfo name url headerConf _ timeout) =
       mRmMR = VT.getObjTyM =<< mMrTyp
       mRmSR = VT.getObjTyM =<< mSrTyp
   rmQR <- liftMaybe (err400 Unexpected "query root has to be an object type") mRmQR
-  return $ GC.RemoteGCtx typMap rmQR mRmMR mRmSR
+
+  case prefix of
+    Just prefix' ->
+      let remoteQueryRoot = addPrefixToTopLevelNodes prefix' rmQR
+          remoteMutationRoot = addPrefixToTopLevelNodes prefix' <$> mRmMR
+          remoteSubscriptionRoot = addPrefixToTopLevelNodes prefix' <$> mRmSR
+      in
+      return $ GC.RemoteGCtx typMap remoteQueryRoot remoteMutationRoot remoteSubscriptionRoot
+    Nothing ->
+      return $ GC.RemoteGCtx typMap rmQR mRmMR mRmSR
 
   where
     noQueryRoot = err400 Unexpected "query root not found in remote schema"
@@ -92,6 +102,24 @@ fetchRemoteSchema manager def@(RemoteSchemaInfo name url headerConf _ timeout) =
     throwWithInternal msg v =
       let err = err400 RemoteSchemaError $ T.pack msg
       in throwError err{qeInternal = Just $ J.toJSON v}
+
+    addPrefixToTopLevelNodes prefix root =
+      let prefixedFieldMap = foldr (\(k,v@(VT.ObjFldInfo desc name' params type' loc)) acc ->
+                                      let prefixedFieldName = (G.Name $ (prefix <> (G.unName name')))
+                                      in
+                                         if G.unName k == "__typename"
+                                         then (Map.insert k v acc)
+                                         else (Map.insert prefixedFieldName (VT.ObjFldInfo desc prefixedFieldName params type' loc) acc)
+                                   )
+                                   Map.empty
+                                   (Map.toList $ (VT._otiFields root))
+            in
+              VT.mkObjTyInfo (VT._otiDesc root)
+                             (VT._otiName root)
+                             (VT._otiImplIFaces root)
+                             prefixedFieldMap
+                             (VT.TLRemoteType name def)
+
 
     httpExceptMsg =
       "HTTP exception occurred while sending the request to " <> show url
@@ -353,6 +381,7 @@ execRemoteGQ'
   -> G.OperationType
   -> m (DiffTime, [N.Header], BL.ByteString)
 execRemoteGQ' manager userInfo reqHdrs q rsi opType = do
+  traceM ("reaching here!!!!!")
   when (opType == G.OperationTypeSubscription) $
     throw400 NotSupported "subscription to remote server is not supported"
   confHdrs <- makeHeadersFromConf hdrConf
@@ -365,6 +394,17 @@ execRemoteGQ' manager userInfo reqHdrs q rsi opType = do
                    ]
       headers  = Map.toList $ foldr Map.union Map.empty hdrMaps
       finalHeaders = addDefaultHeaders headers
+  reqBody <-
+    case prefix of
+      Nothing -> pure $ J.encode q
+      Just prefix' -> do
+        parsedReq <- toParsed q
+        let execDoc = unGQLExecDoc $ _grQuery parsedReq
+        let (_,opDef,_) = G.partitionExDefs execDoc
+        --traceM ("exec doc is " <> (show $ G._todSelectionSet opDef))
+        pure $ J.encode parsedReq
+
+  --traceM ("parsedReq is " <> (show $ J.encode parsedReq))
   initReqE <- liftIO $ try $ HTTP.parseRequest (show url)
   initReq <- either httpThrow pure initReqE
   let req = initReq
@@ -378,7 +418,7 @@ execRemoteGQ' manager userInfo reqHdrs q rsi opType = do
   resp <- either httpThrow return res
   pure (time, mkSetCookieHeaders resp, resp ^. Wreq.responseBody)
   where
-    RemoteSchemaInfo _ url hdrConf fwdClientHdrs timeout = rsi
+    RemoteSchemaInfo _ url hdrConf fwdClientHdrs timeout prefix = rsi
     httpThrow :: (MonadError QErr m) => HTTP.HttpException -> m a
     httpThrow = \case
       HTTP.HttpExceptionRequest _req content -> throw500 $ T.pack . show $ content
