@@ -83,6 +83,16 @@ query' allTables stringifyNum = do
   pure $ concat $ catMaybes selectExpParsers
   where toQrf = fmap . fmap . fmap
 
+{-
+query {
+  author
+  author_by_pk
+  author_aggregate
+  currentWeather
+}
+objects, scalars, ?interface?, ?unions?
+-}
+
 -- | Parse query-type GraphQL requests without introspection (should be unused;
 -- just here for completeness)
 query
