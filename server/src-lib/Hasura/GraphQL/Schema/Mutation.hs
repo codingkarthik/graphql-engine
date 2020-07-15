@@ -188,7 +188,7 @@ objectRelationshipInput table insertPerms selectPerms updatePerms =
           conflictParser
         object <- P.field objectName Nothing objectParser
         pure $ mkInsertObject object table columns conflictClause insertPerms updatePerms
-  pure $ P.object inputName (Just inputDesc) inputParser <&> undefined
+  pure $ P.object inputName (Just inputDesc) inputParser
 
 arrayRelationshipInput
   :: forall m n r. (MonadSchema n m, MonadTableInfo r m, MonadRole r m)
