@@ -239,7 +239,7 @@ library
 
                      -- 0.6.1 is supposedly not okay for ghc 8.6:
                      --   https://github.com/nomeata/ghc-heap-view/issues/27
-                     , ghc-heap-view
+--                     , ghc-heap-view
 
                      , directory
                      , semigroups >= 0.19.1

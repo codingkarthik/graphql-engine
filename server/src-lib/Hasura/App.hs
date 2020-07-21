@@ -12,7 +12,7 @@ import           Control.Monad.Trans.Control               (MonadBaseControl (..
 import           Control.Monad.Unique
 import           Data.Aeson                                ((.=))
 import           Data.Time.Clock                           (UTCTime)
-import           GHC.AssertNF
+-- import           GHC.AssertNF
 import           GHC.Stats
 import           Options.Applicative
 import           System.Environment                        (getEnvironment, lookupEnv)
@@ -278,7 +278,7 @@ runHGEServer ServeOptions{..} InitCtx{..} pgExecCtx initTime = do
   -- tool.
   --
   -- NOTE: be sure to compile WITHOUT code coverage, for this to work properly.
-  liftIO disableAssertNF
+--  liftIO disableAssertNF
 
   let sqlGenCtx = SQLGenCtx soStringifyNum
       Loggers loggerCtx logger _ = _icLoggers
