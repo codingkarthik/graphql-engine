@@ -94,7 +94,7 @@ jsonToGqlValue (J.Number val)
 jsonToGqlValue (J.Array vals) = G.VList <$> traverse jsonToGqlValue (toList vals)
 jsonToGqlValue (J.Object vals) =
   G.VObject . Map.fromList <$> for (Map.toList vals) \(key, val) -> do
-    name <- G.mkName key `onNothing` throw400 ValidationFailed
-      ("variable value contains object with key " <> key
-       <<> ", which is not a legal GraphQL name")
-    (name,) <$> jsonToGqlValue val
+    -- name <- G.mkName key `onNothing` throw400 ValidationFailed
+    --   ("variable value contains object with key " <> key
+    --    <<> ", which is not a legal GraphQL name")
+    (G.unsafeMkName key,) <$> jsonToGqlValue val
