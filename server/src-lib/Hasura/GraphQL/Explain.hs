@@ -29,6 +29,7 @@ import qualified Hasura.GraphQL.Execute.Query           as E
 import qualified Hasura.GraphQL.Transport.HTTP.Protocol as GH
 import qualified Hasura.RQL.DML.Select                  as DS
 import qualified Hasura.SQL.DML                         as S
+import qualified Hasura.Tracing                         as Tracing
 
 data GQLExplain
   = GQLExplain
@@ -70,7 +71,7 @@ resolveUnpreparedValue userInfo = \case
       PGTypeArray _      -> sessionVariableValue
 
 explainQueryField
-  :: (MonadError QErr m, MonadTx m)
+  :: (MonadError QErr m, MonadTx m, Tracing.MonadTrace m)
   => UserInfo
   -> G.Name
   -> QueryRootField UnpreparedValue
@@ -96,11 +97,18 @@ explainQueryField userInfo fieldName rootField = do
       pure $ FieldPlan fieldName (Just textSQL) $ Just planLines
 
 explainGQLQuery
-  :: forall m. (MonadError QErr m, MonadIO m)
+  :: forall m tx
+  . ( MonadError QErr m
+    , MonadIO m
+    , Tracing.MonadTrace m
+    , MonadIO tx
+    , MonadTx tx
+    , Tracing.MonadTrace tx
+    )
   => PGExecCtx
   -> SchemaCache
   -> GQLExplain
-  -> m EncJSON
+  -> m (tx EncJSON)
 explainGQLQuery pgExecCtx sc (GQLExplain query userVarsRaw maybeIsRelay) = do
   -- NOTE!: we will be executing what follows as though admin role. See e.g. notes in explainField:
   userInfo <- mkUserInfo (URBFromSessionVariablesFallback adminRoleName) UAdminSecretSent sessionVariables
