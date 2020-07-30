@@ -2,7 +2,9 @@
 {-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
 
 module Hasura.GraphQL.Resolve.Action
-  ( resolveAsyncActionQuery
+  ( ActionExecuteTx
+  , ActionExecuteResult(..)
+  , resolveAsyncActionQuery
   , asyncActionsProcessor
   , resolveActionExecution
   , resolveActionMutationAsync
@@ -46,22 +48,25 @@ import qualified Hasura.Tracing                       as Tracing
 import           Hasura.EncJSON
 import           Hasura.GraphQL.Execute.Prepare
 import           Hasura.GraphQL.Parser
-import           Hasura.GraphQL.Utils           (showNames)
+import           Hasura.GraphQL.Utils                 (showNames)
 import           Hasura.HTTP
 import           Hasura.RQL.DDL.Headers
 import           Hasura.RQL.DDL.Schema.Cache
-import           Hasura.RQL.DML.Select          (asSingleRowJsonResp)
+import           Hasura.RQL.DML.Select                (asSingleRowJsonResp)
 import           Hasura.RQL.Types
 import           Hasura.RQL.Types.Run
-import           Hasura.Server.Utils            (mkClientHeadersForward, mkSetCookieHeaders)
-import           Hasura.Server.Version          (HasVersion)
+import           Hasura.Server.Utils                  (mkClientHeadersForward, mkSetCookieHeaders)
+import           Hasura.Server.Version                (HasVersion)
 import           Hasura.Session
 import           Hasura.SQL.Types
-import           Hasura.SQL.Value               (PGScalarValue (..), toTxtValue)
+import           Hasura.SQL.Value                     (PGScalarValue (..), toTxtValue)
 -- import           Hasura.GraphQL.Resolve.Context
 -- import           Hasura.GraphQL.Resolve.InputValue
 -- import           Hasura.GraphQL.Resolve.Select     (processTableSelectionSet)
 -- import           Hasura.GraphQL.Validate.SelectionSet
+
+type ActionExecuteTx =
+  forall tx. (MonadIO tx, MonadTx tx, Tracing.MonadTrace tx) => tx EncJSON
 
 newtype ActionContext
   = ActionContext {_acName :: ActionName}
@@ -171,21 +176,24 @@ $(J.deriveToJSON (J.aesonDrop 4 J.snakeCase) ''ActionInternalError)
 --       (,[]) <$> resolveActionMutationAsync field userInfo
 -- >>>>>>> 0dddbe9e9... Add MonadTrace and MonadExecuteQuery abstractions (#5383)
 
+data ActionExecuteResult
+  = ActionExecuteResult
+  { _aerTransaction :: !ActionExecuteTx
+  , _aerHeaders     :: !HTTP.ResponseHeaders
+  }
+
 -- | Synchronously execute webhook handler and resolve response to action "output"
 resolveActionExecution
   :: ( HasVersion
      , MonadError QErr m
      , MonadIO m
      , Tracing.MonadTrace m
-     , Tracing.MonadTrace tx
-     , MonadTx tx
-     , MonadIO tx
      )
   => Env.Environment
   -> UserInfo
   -> AnnActionExecution UnpreparedValue
   -> ActionExecContext
-  -> m (tx EncJSON, HTTP.ResponseHeaders)
+  -> m ActionExecuteResult
 resolveActionExecution env userInfo annAction execContext = do
   let actionContext = ActionContext actionName
       handlerPayload = ActionWebhookPayload actionContext sessionVariables inputPayload
@@ -196,21 +204,24 @@ resolveActionExecution env userInfo annAction execContext = do
       selectAstUnresolved = processOutputSelectionSet webhookResponseExpression
                             outputType definitionList annFields stringifyNum
   astResolved <- RS.traverseAnnSimpleSelect (pure . unpreparedToTextSQL) selectAstUnresolved
-  let (astResolvedWithoutRemoteJoins,maybeRemoteJoins) = RJ.getRemoteJoins astResolved
-      jsonAggType = mkJsonAggSelect outputType
-  return $ (,respHeaders) $
-    case maybeRemoteJoins of
-      Just remoteJoins ->
-        let query = Q.fromBuilder $ toSQL $
-                    RS.mkSQLSelect jsonAggType astResolvedWithoutRemoteJoins
-        in RJ.executeQueryWithRemoteJoins env manager reqHeaders userInfo query [] remoteJoins
-      Nothing ->
-        liftTx $ asSingleRowJsonResp (Q.fromBuilder $ toSQL $ RS.mkSQLSelect jsonAggType astResolved) []
+  return $ ActionExecuteResult (executeAction astResolved) respHeaders
   where
     AnnActionExecution actionName outputType annFields inputPayload
       outputFields definitionList resolvedWebhook confHeaders
       forwardClientHeaders stringifyNum = annAction
     ActionExecContext manager reqHeaders sessionVariables = execContext
+
+    executeAction :: RS.AnnSimpleSel -> ActionExecuteTx
+    executeAction astResolved = do
+      let (astResolvedWithoutRemoteJoins,maybeRemoteJoins) = RJ.getRemoteJoins astResolved
+          jsonAggType = mkJsonAggSelect outputType
+      case maybeRemoteJoins of
+        Just remoteJoins ->
+          let query = Q.fromBuilder $ toSQL $
+                      RS.mkSQLSelect jsonAggType astResolvedWithoutRemoteJoins
+          in RJ.executeQueryWithRemoteJoins env manager reqHeaders userInfo query [] remoteJoins
+        Nothing ->
+          liftTx $ asSingleRowJsonResp (Q.fromBuilder $ toSQL $ RS.mkSQLSelect jsonAggType astResolved) []
 
 -- QueryActionExecuter is a type for a higher function, this is being used
 -- to allow or disallow where a query action can be executed. We would like

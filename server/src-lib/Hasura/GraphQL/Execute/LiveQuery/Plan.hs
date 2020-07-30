@@ -289,7 +289,6 @@ buildLiveQueryPlan
   :: ( MonadError QErr m
      , MonadIO m
      , Tracing.MonadTrace m
-     , HasVersion
      )
   => PGExecCtx
   -> UserInfo

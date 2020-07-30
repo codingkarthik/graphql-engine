@@ -71,7 +71,7 @@ resolveUnpreparedValue userInfo = \case
       PGTypeArray _      -> sessionVariableValue
 
 explainQueryField
-  :: (MonadError QErr m, MonadTx m, Tracing.MonadTrace m)
+  :: (MonadError QErr m, MonadTx m)
   => UserInfo
   -> G.Name
   -> QueryRootField UnpreparedValue
@@ -97,18 +97,18 @@ explainQueryField userInfo fieldName rootField = do
       pure $ FieldPlan fieldName (Just textSQL) $ Just planLines
 
 explainGQLQuery
-  :: forall m tx
+  :: forall m
   . ( MonadError QErr m
     , MonadIO m
     , Tracing.MonadTrace m
-    , MonadIO tx
-    , MonadTx tx
-    , Tracing.MonadTrace tx
+    -- , MonadIO tx
+    -- , MonadTx tx
+    -- , Tracing.MonadTrace tx
     )
   => PGExecCtx
   -> SchemaCache
   -> GQLExplain
-  -> m (tx EncJSON)
+  -> m EncJSON
 explainGQLQuery pgExecCtx sc (GQLExplain query userVarsRaw maybeIsRelay) = do
   -- NOTE!: we will be executing what follows as though admin role. See e.g. notes in explainField:
   userInfo <- mkUserInfo (URBFromSessionVariablesFallback adminRoleName) UAdminSecretSent sessionVariables

@@ -29,8 +29,8 @@ import           Hasura.Server.Version                  (HasVersion)
 import qualified Hasura.SQL.DML                         as S
 import qualified Hasura.Tracing                         as Tracing
 
-import           Hasura.EncJSON
 import           Hasura.Db
+import           Hasura.EncJSON
 import           Hasura.GraphQL.Context
 import           Hasura.GraphQL.Execute.Prepare
 import           Hasura.GraphQL.Execute.Resolve
@@ -64,7 +64,7 @@ instance J.ToJSON PGPlan where
 data RootFieldPlan
   = RFPRaw !B.ByteString
   | RFPPostgres !PGPlan
-  | RFPActionQuery !LazyRespTx
+  | RFPActionQuery !ActionExecuteTx
 
 instance J.ToJSON RootFieldPlan where
   toJSON = \case
@@ -76,14 +76,14 @@ type FieldPlans = [(G.Name, RootFieldPlan)]
 
 data ActionQueryPlan
   = AQPAsyncQuery !DS.AnnSimpleSel -- ^ Cacheable plan
-  | AQPQuery !RespTx -- ^ Non cacheable transaction
+  | AQPQuery !ActionExecuteTx -- ^ Non cacheable transaction
 
 actionQueryToRootFieldPlan
   :: PlanVariables -> PrepArgMap -> ActionQueryPlan -> RootFieldPlan
 actionQueryToRootFieldPlan vars prepped = \case
   AQPAsyncQuery s -> RFPPostgres $
     PGPlan (DS.selectQuerySQL DS.JASSingleObject s) vars prepped Nothing
-  AQPQuery tx     -> RFPActionQuery (liftTx tx)
+  AQPQuery tx     -> RFPActionQuery tx
 
 data ReusableVariableTypes  -- FIXME
 data ReusableVariableValues -- FIXME
@@ -299,8 +299,9 @@ convertQuerySelSet env gqlContext userInfo manager reqHeaders fields varDefs var
     convertActionQuery
       :: ActionQuery UnpreparedValue -> StateT PlanningSt m ActionQueryPlan
     convertActionQuery = \case
-      AQQuery s -> (AQPQuery . fst) <$>
-        lift (resolveActionExecution env userInfo s $ ActionExecContext manager reqHeaders usrVars)
+      AQQuery s -> lift $ do
+        result <- resolveActionExecution env userInfo s $ ActionExecContext manager reqHeaders usrVars
+        pure $ AQPQuery $ _aerTransaction result
       AQAsync s -> AQPAsyncQuery <$>
         DS.traverseAnnSimpleSelect prepareWithPlan (resolveAsyncActionQuery userInfo s)
 
@@ -353,7 +354,7 @@ instance J.ToJSON PreparedSql where
 data ResolvedQuery
   = RRRaw !B.ByteString
   | RRSql !PreparedSql
-  | RRActionQuery !LazyRespTx
+  | RRActionQuery !ActionExecuteTx
 
 -- | The computed SQL with alias which can be logged. Nothing here represents no
 -- SQL for cases like introspection responses. Tuple of alias to a (maybe)
@@ -383,7 +384,7 @@ mkLazyRespTx env manager reqHdrs userInfo resolved =
           Nothing -> liftTx $ asSingleRowJsonResp q (map fst args)
           Just remoteJoins ->
             executeQueryWithRemoteJoins env manager reqHdrs userInfo q prepArgs remoteJoins
-     RRActionQuery tx'           -> liftTx $ lazyTxToQTx tx'
+     RRActionQuery actionTx           -> actionTx
     return (G.unName alias, resp)
 
 mkGeneratedSqlMap :: [(G.Name, ResolvedQuery)] -> GeneratedSqlMap
