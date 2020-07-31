@@ -30,23 +30,23 @@ import qualified Data.CaseInsensitive                   as CI
 import qualified Data.Environment                       as Env
 import qualified Data.HashMap.Strict                    as Map
 
+import qualified Data.HashSet                           as HS
+import qualified Data.List.NonEmpty                     as NE
 import qualified Data.Text                              as T
 import qualified Language.GraphQL.Draft.Syntax          as G
 import qualified Network.HTTP.Client                    as HTTP
 import qualified Network.HTTP.Types                     as HTTP
 import qualified Network.Wai.Extended                   as Wai
 import qualified Network.Wreq                           as Wreq
-import qualified Data.List.NonEmpty                     as NE
-import qualified Data.HashSet                           as HS
 
 import           Control.Exception                      (try)
 import           Control.Lens
 
 import           Hasura.EncJSON
 import           Hasura.GraphQL.Logging
+import           Hasura.GraphQL.RemoteServer            (execRemoteGQ')
 import           Hasura.GraphQL.Transport.HTTP.Protocol
 import           Hasura.HTTP
-import           Hasura.GraphQL.RemoteServer            (execRemoteGQ')
 import           Hasura.RQL.DDL.Headers
 import           Hasura.RQL.Types
 import           Hasura.Server.Utils                    (RequestId, mkClientHeadersForward,
@@ -230,7 +230,7 @@ getResolvedExecPlan
   -> HTTP.Manager
   -> [HTTP.Header]
   -> (GQLReqUnparsed, GQLReqParsed)
-  -> m (Telem.CacheHit,ResolvedExecutionPlan tx)
+  -> m (Telem.CacheHit, ResolvedExecutionPlan tx)
 getResolvedExecPlan env pgExecCtx planCache userInfo sqlGenCtx
   sc scVer queryType httpManager reqHeaders (reqUnparsed, reqParsed) = do
 

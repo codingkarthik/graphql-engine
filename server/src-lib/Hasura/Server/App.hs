@@ -2,12 +2,12 @@
 
 module Hasura.Server.App where
 
-import           Hasura.Prelude                            hiding (get, put)
 import           Control.Concurrent.MVar.Lifted
 import           Control.Exception                         (IOException, try)
 import           Control.Monad.Morph                       (hoist)
 import           Control.Monad.Trans.Control               (MonadBaseControl)
 import           Data.String                               (fromString)
+import           Hasura.Prelude                            hiding (get, put)
 
 import           Control.Monad.Stateless
 import           Data.Aeson                                hiding (json)
@@ -401,10 +401,7 @@ v1GQRelayHandler
 v1GQRelayHandler = v1Alpha1GQHandler E.QueryRelay
 
 gqlExplainHandler
-  :: forall m
-   . ( HasVersion
-     , MonadIO m
-     )
+  :: forall m. (MonadIO m)
   => GE.GQLExplain
   -> Handler (Tracing.TraceT m) (HttpResponse EncJSON)
 gqlExplainHandler query = do
@@ -417,8 +414,8 @@ gqlExplainHandler query = do
 
   -- let runTx :: ReaderT HandlerCtx (Tracing.TraceT (Tracing.NoReporter (LazyTx QErr))) a
   --           -> ExceptT QErr (ReaderT HandlerCtx (Tracing.TraceT m)) a
-  let runTx rttx = ExceptT . ReaderT $ \ctx -> do
-        runExceptT (Tracing.interpTraceT (runLazyTx pgExecCtx Q.ReadOnly) (runReaderT rttx ctx))
+  -- let runTx rttx = ExceptT . ReaderT $ \ctx -> do
+  --       runExceptT (Tracing.interpTraceT (runLazyTx pgExecCtx Q.ReadOnly) (runReaderT rttx ctx))
 
   res <- GE.explainGQLQuery pgExecCtx sc query
   return $ HttpResponse res []

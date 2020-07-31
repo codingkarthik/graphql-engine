@@ -2,11 +2,12 @@
 
 module Hasura.App where
 
-import           Control.Concurrent.STM.TVar               (readTVarIO, TVar)
+import           Control.Concurrent.STM.TVar               (TVar, readTVarIO)
 import           Control.Exception                         (throwIO)
 import           Control.Lens                              (view, _2)
 import           Control.Monad.Base
-import           Control.Monad.Catch                       (MonadCatch, MonadMask, MonadThrow, onException, Exception)
+import           Control.Monad.Catch                       (Exception, MonadCatch, MonadMask,
+                                                            MonadThrow, onException)
 import           Control.Monad.Morph                       (hoist)
 import           Control.Monad.Stateless
 import           Control.Monad.STM                         (atomically)
@@ -22,12 +23,13 @@ import           System.Mem                                (performMajorGC)
 
 import qualified Control.Concurrent.Async.Lifted.Safe      as LA
 import qualified Control.Concurrent.Extended               as C
+import qualified Control.Immortal                          as Immortal
 import qualified Data.Aeson                                as A
 import qualified Data.ByteString.Char8                     as BC
 import qualified Data.ByteString.Lazy.Char8                as BLC
+import qualified Data.Environment                          as Env
 import qualified Data.Set                                  as Set
 import qualified Data.Text                                 as T
-import qualified Data.Environment                          as Env
 import qualified Data.Time.Clock                           as Clock
 import qualified Data.Yaml                                 as Y
 import qualified Database.PG.Query                         as Q
@@ -36,9 +38,7 @@ import qualified Network.HTTP.Client.TLS                   as HTTP
 import qualified Network.Wai.Handler.Warp                  as Warp
 import qualified System.Log.FastLogger                     as FL
 import qualified Text.Mustache.Compile                     as M
-import qualified Control.Immortal                          as Immortal
 
-import           Hasura.GraphQL.Transport.HTTP             (MonadExecuteQuery(..))
 import           Hasura.Db
 import           Hasura.EncJSON
 import           Hasura.Eventing.Common
@@ -48,6 +48,7 @@ import           Hasura.GraphQL.Execute                    (MonadGQLExecutionChe
                                                             checkQueryInAllowlist)
 import           Hasura.GraphQL.Logging                    (MonadQueryLog (..), QueryLog (..))
 import           Hasura.GraphQL.Resolve.Action             (asyncActionsProcessor)
+import           Hasura.GraphQL.Transport.HTTP             (MonadExecuteQuery (..))
 import           Hasura.GraphQL.Transport.HTTP.Protocol    (toParsed)
 import           Hasura.Logging
 import           Hasura.Prelude
@@ -72,8 +73,8 @@ import           Hasura.Server.Telemetry
 import           Hasura.Server.Version
 import           Hasura.Session
 
-import qualified Hasura.Tracing                            as Tracing
 import qualified Hasura.GraphQL.Transport.WebSocket.Server as WS
+import qualified Hasura.Tracing                            as Tracing
 
 data ExitCode
   = InvalidEnvironmentVariableOptionsError
@@ -612,7 +613,7 @@ instance HttpLog AppM where
       mkHttpAccessLogContext userInfoM reqId httpReq compressedResponse qTime cType headers
 
 instance MonadExecuteQuery AppM where
-  executeQuery _ _ _ pgCtx _txAccess tx =
+  executeQuery _ _ pgCtx _txAccess tx =
     ([],) <$> hoist (runQueryTx pgCtx) tx
 
 instance UserAuthentication (Tracing.TraceT AppM) where

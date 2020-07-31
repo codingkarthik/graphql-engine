@@ -28,8 +28,8 @@ import           Hasura.Session
 import           Hasura.Tracing                         (MonadTrace, TraceT, trace)
 
 import qualified Data.Aeson                             as J
-import qualified Data.HashMap.Strict                    as Map
 import qualified Data.Environment                       as Env
+import qualified Data.HashMap.Strict                    as Map
 import qualified Database.PG.Query                      as Q
 import qualified Hasura.GraphQL.Execute                 as E
 import qualified Hasura.GraphQL.Execute.Query           as EQ
@@ -189,7 +189,7 @@ runQueryDB
   => RequestId
   -> (GQLReqUnparsed, GQLReqParsed)
   -> UserInfo
-  -> (LazyRespTx, EQ.GeneratedSqlMap)
+  -> (Tracing.TraceT (LazyTx QErr) EncJSON, EQ.GeneratedSqlMap)
   -> m (DiffTime, Telem.QueryType, EncJSON)
   -- ^ Also return 'Mutation' when the operation was a mutation, and the time
   -- spent in the PG query; for telemetry.
@@ -214,7 +214,7 @@ runMutationDB
   => RequestId
   -> GQLReqUnparsed
   -> UserInfo
-  -> LazyRespTx
+  -> Tracing.TraceT (LazyTx QErr) EncJSON
   -> m (DiffTime, Telem.QueryType, EncJSON)
   -- ^ Also return 'Mutation' when the operation was a mutation, and the time
   -- spent in the PG query; for telemetry.

@@ -342,23 +342,23 @@ onStart env serverEnv wsConn (StartMsg opId q) = catchAndIgnore $ do
   case execPlan of
     E.QueryExecutionPlan queryPlan -> do
       case queryPlan of
-        E.ExecStepDB (tx, genSql) ->
-          execQueryOrMut timerTot Telem.Query telemCacheHit Telem.Local (Just genSql) requestId q $
-            runQueryTx pgExecCtx tx
+        E.ExecStepDB (tx, genSql) -> Tracing.trace "pg" $
+          execQueryOrMut timerTot Telem.Query telemCacheHit (Just genSql) requestId $
+            fmap snd $ Tracing.interpTraceT id $ executeQuery reqParsed (Just genSql) pgExecCtx Q.ReadOnly tx
         E.ExecStepRemote (rsi, opDef, _varValsM) ->
           runRemoteGQ timerTot telemCacheHit execCtx requestId userInfo reqHdrs opDef rsi
         E.ExecStepRaw (name, json) ->
-          execQueryOrMut timerTot Telem.Query telemCacheHit Telem.Local Nothing requestId q $
+          execQueryOrMut timerTot Telem.Query telemCacheHit Nothing requestId $
           return $ encJFromJValue $ J.Object $ Map.singleton (G.unName name) json
     E.MutationExecutionPlan mutationPlan -> do
       case mutationPlan of
-        E.ExecStepDB tx ->
-          execQueryOrMut timerTot Telem.Mutation telemCacheHit Telem.Local Nothing requestId q $
-            runLazyTx pgExecCtx Q.ReadWrite $ withUserInfo userInfo $ fst tx
+        E.ExecStepDB (tx, _) -> Tracing.trace "pg" $
+          execQueryOrMut timerTot Telem.Mutation telemCacheHit Nothing requestId $
+            Tracing.interpTraceT (runLazyTx pgExecCtx Q.ReadWrite . withUserInfo userInfo) tx
         E.ExecStepRemote (rsi, opDef, _varValsM) ->
           runRemoteGQ timerTot telemCacheHit execCtx requestId userInfo reqHdrs opDef rsi
         E.ExecStepRaw (name, json) ->
-          execQueryOrMut timerTot Telem.Query telemCacheHit Telem.Local Nothing requestId q $
+          execQueryOrMut timerTot Telem.Query telemCacheHit Nothing requestId $
           return $ encJFromJValue $ J.Object $ Map.singleton (G.unName name) json
     E.SubscriptionExecutionPlan subscriptionPlan ->
       case subscriptionPlan of
@@ -388,11 +388,20 @@ onStart env serverEnv wsConn (StartMsg opId q) = catchAndIgnore $ do
   --     runRemoteGQ timerTot telemCacheHit execCtx requestId userInfo reqHdrs opDef rsi
   where
     telemTransport = Telem.HTTP
-    execQueryOrMut timerTot telemQueryType telemCacheHit telemLocality genSql requestId q' action = do
+    execQueryOrMut
+      :: ExceptT () m DiffTime
+      -> Telem.QueryType
+      -> Telem.CacheHit
+      -> Maybe EQ.GeneratedSqlMap
+      -> RequestId
+      -> ExceptT QErr (ExceptT () m) EncJSON
+      -> ExceptT () m ()
+    execQueryOrMut timerTot telemQueryType telemCacheHit genSql requestId action = do
+      let telemLocality = Telem.Local
       logOpEv ODStarted (Just requestId)
       -- log the generated SQL and the graphql query
-      logQueryLog logger q' genSql requestId
-      (withElapsedTime $ liftIO $ runExceptT action) >>= \case
+      logQueryLog logger q genSql requestId
+      (withElapsedTime $ runExceptT action) >>= \case
         (_,      Left err) -> postExecErr requestId err
         (telemTimeIO_DT, Right encJson) -> do
           -- Telemetry. NOTE: don't time network IO:
