@@ -44,7 +44,6 @@ import qualified Network.Wai.Extended                   as Wai
 class Monad m => MonadExecuteQuery m where
   executeQuery
     :: GQLReqParsed
-    -> [R.QueryRootFldUnresolved]
     -> Maybe EQ.GeneratedSqlMap
     -> PGExecCtx
     -> Q.TxAccess
@@ -52,13 +51,13 @@ class Monad m => MonadExecuteQuery m where
     -> TraceT (ExceptT QErr m) (HTTP.ResponseHeaders, EncJSON)
 
 instance MonadExecuteQuery m => MonadExecuteQuery (ReaderT r m) where
-  executeQuery a b c d e f = hoist (hoist lift) $ executeQuery a b c d e f
+  executeQuery a b c d e = hoist (hoist lift) $ executeQuery a b c d e
 
 instance MonadExecuteQuery m => MonadExecuteQuery (ExceptT r m) where
-  executeQuery a b c d e f = hoist (hoist lift) $ executeQuery a b c d e f
+  executeQuery a b c d e = hoist (hoist lift) $ executeQuery a b c d e
 
 instance MonadExecuteQuery m => MonadExecuteQuery (TraceT m) where
-  executeQuery a b c d e f = hoist (hoist lift) $ executeQuery a b c d e f
+  executeQuery a b c d e = hoist (hoist lift) $ executeQuery a b c d e
 
 
 -- | Run (execute) a single GraphQL query
@@ -97,7 +96,7 @@ runGQ env reqId userInfo ipAddress reqHeaders queryType reqUnparsed = do
       E.QueryExecutionPlan queryPlan -> do
         case queryPlan of
           E.ExecStepDB txGenSql -> do
-            (telemTimeIO, telemQueryType, resp) <- runQueryDB reqId reqUnparsed userInfo txGenSql
+            (telemTimeIO, telemQueryType, resp) <- runQueryDB reqId (reqUnparsed,reqParsed) userInfo txGenSql
             return (telemCacheHit, Telem.Local, (telemTimeIO, telemQueryType, HttpResponse resp []))
           E.ExecStepRemote (rsi, opDef, _varValsM) ->
             runRemoteGQ telemCacheHit rsi opDef
@@ -188,20 +187,20 @@ runQueryDB
      , MonadExecuteQuery m
      )
   => RequestId
-  -> GQLReqUnparsed
+  -> (GQLReqUnparsed, GQLReqParsed)
   -> UserInfo
   -> (LazyRespTx, EQ.GeneratedSqlMap)
   -> m (DiffTime, Telem.QueryType, EncJSON)
   -- ^ Also return 'Mutation' when the operation was a mutation, and the time
   -- spent in the PG query; for telemetry.
-runQueryDB reqId (query, queryParsed) _userInfo (tx, genSql) = trace "pg" $ do
+runQueryDB reqId (query, queryParsed) _userInfo (tx, genSql) =  do
   -- log the generated SQL and the graphql query
   E.ExecutionCtx logger _ pgExecCtx _ _ _ _ _ <- ask
   logQueryLog logger query (Just genSql) reqId
-  (telemTimeIO, respE) <- withElapsedTime $ liftIO $ runExceptT $ do
-    Tracing.interpTraceT id $ runQueryTx pgExecCtx tx
+  (telemTimeIO, respE) <- withElapsedTime $ runExceptT $ trace "pg" $ do
+    Tracing.interpTraceT id $ executeQuery queryParsed (Just genSql) pgExecCtx Q.ReadOnly tx
   resp <- liftEither respE
-  let !json = encodeGQResp $ GQSuccess $ encJToLBS resp
+  let !json = encodeGQResp $ GQSuccess $ encJToLBS $ snd resp
       telemQueryType = Telem.Query
   return (telemTimeIO, telemQueryType, json)
 
@@ -210,6 +209,7 @@ runMutationDB
      , MonadError QErr m
      , MonadReader E.ExecutionCtx m
      , MonadQueryLog m
+     , MonadTrace m
      )
   => RequestId
   -> GQLReqUnparsed
@@ -218,13 +218,13 @@ runMutationDB
   -> m (DiffTime, Telem.QueryType, EncJSON)
   -- ^ Also return 'Mutation' when the operation was a mutation, and the time
   -- spent in the PG query; for telemetry.
-runMutationDB reqId query userInfo tx = trace "pg" $ do
+runMutationDB reqId query userInfo tx =  do
   E.ExecutionCtx logger _ pgExecCtx _ _ _ _ _ <- ask
   -- log the graphql query
   logQueryLog logger query Nothing reqId
   ctx <- Tracing.currentContext
-  (telemTimeIO, respE) <- withElapsedTime $ liftIO $ runExceptT $ do
-    Tracing.interpTraceT (runLazyTx pgExecCtx Q.ReadWrite . withTraceContext ctx .  withUserInfo userInfo) tx
+  (telemTimeIO, respE) <- withElapsedTime $  runExceptT $ trace "pg" $ do
+    Tracing.interpTraceT (runLazyTx pgExecCtx Q.ReadWrite .  withUserInfo userInfo)  tx
   resp <- liftEither respE
   let !json = encodeGQResp $ GQSuccess $ encJToLBS resp
       telemQueryType = Telem.Mutation
