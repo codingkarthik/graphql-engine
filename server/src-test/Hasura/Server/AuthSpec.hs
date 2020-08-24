@@ -25,6 +25,12 @@ spec = do
   getUserInfoWithExpTimeTests
   setupAuthModeTests
 
+allowedRolesClaimText :: Text
+allowedRolesClaimText = sessionVariableToText allowedRolesClaim
+
+defaultRoleClaimText :: Text
+defaultRoleClaimText = sessionVariableToText defaultRoleClaim
+
 -- Unit test the core of our authentication code. This doesn't test the details
 -- of resolving roles from JWT or webhook.
 getUserInfoWithExpTimeTests :: Spec
@@ -272,18 +278,18 @@ getUserInfoWithExpTimeTests = describe "getUserInfo" $ do
         \(mode, modeMsg) -> describe modeMsg $ do
 
           it "authorizes successfully with JWT when requested role allowed" $ do
-            let claim = unObject [ allowedRolesClaim .= (["editor","user", "mod"] :: [Text])
-                                , defaultRoleClaim .= ("user" :: Text)
+            let claim = unObject [ allowedRolesClaimText .= (["editor","user", "mod"] :: [Text])
+                                , defaultRoleClaimText .= ("user" :: Text)
                                 ]
             getUserInfoWithExpTime claim [("Authorization", "IGNORED"), (userRoleHeader, "editor")] mode
               `shouldReturn` Right (mkRoleNameE "editor")
-            -- Uses the defaultRoleClaim:
+            -- Uses the defaultRoleClaimText:
             getUserInfoWithExpTime claim [("Authorization", "IGNORED")] mode
               `shouldReturn` Right (mkRoleNameE "user")
 
           it "rejects when requested role is not allowed" $ do
-            let claim = unObject [ allowedRolesClaim .= (["editor","user", "mod"] :: [Text])
-                                , defaultRoleClaim .= ("user" :: Text)
+            let claim = unObject [ allowedRolesClaimText .= (["editor","user", "mod"] :: [Text])
+                                , defaultRoleClaimText .= ("user" :: Text)
                                 ]
             getUserInfoWithExpTime claim [("Authorization", "IGNORED"), (userRoleHeader, "r00t")] mode
               `shouldReturn` Left AccessDenied
@@ -291,8 +297,8 @@ getUserInfoWithExpTimeTests = describe "getUserInfo" $ do
               `shouldReturn` Left AccessDenied
 
           -- A corner case, but the behavior seems desirable:
-          it "always rejects when token has empty allowedRolesClaim" $ do
-            let claim = unObject [ allowedRolesClaim .= ([] :: [Text]), defaultRoleClaim .= ("user" :: Text) ]
+          it "always rejects when token has empty allowedRolesClaimText" $ do
+            let claim = unObject [ allowedRolesClaimText .= ([] :: [Text]), defaultRoleClaimText .= ("user" :: Text) ]
             getUserInfoWithExpTime claim [("Authorization", "IGNORED"), (userRoleHeader, "admin")] mode
               `shouldReturn` Left AccessDenied
             getUserInfoWithExpTime claim [("Authorization", "IGNORED"), (userRoleHeader, "user")] mode
@@ -300,9 +306,9 @@ getUserInfoWithExpTimeTests = describe "getUserInfo" $ do
             getUserInfoWithExpTime claim [("Authorization", "IGNORED")] mode
               `shouldReturn` Left AccessDenied
 
-          it "rejects when token doesn't have proper allowedRolesClaim and defaultRoleClaim" $ do
-            let claim0 = unObject [ allowedRolesClaim .= (["editor","user", "mod"] :: [Text]) ]
-                claim1 = unObject [ defaultRoleClaim .= ("user" :: Text) ]
+          it "rejects when token doesn't have proper allowedRolesClaimText and defaultRoleClaimText" $ do
+            let claim0 = unObject [ allowedRolesClaimText .= (["editor","user", "mod"] :: [Text]) ]
+                claim1 = unObject [ defaultRoleClaimText .= ("user" :: Text) ]
                 claim2 = unObject []
             for_ [claim0, claim1, claim2] $ \claim ->
               getUserInfoWithExpTime claim [("Authorization", "IGNORED")] mode
@@ -384,10 +390,9 @@ setupAuthModeTests = describe "setupAuthMode" $ do
 fakeJWTConfig :: JWTConfig
 fakeJWTConfig =
   let jcKeyOrUrl = Left (Jose.fromOctets [])
-      jcClaimNs = ClaimNs ""
       jcAudience = Nothing
-      jcClaimsFormat = Nothing
       jcIssuer = Nothing
+      jcClaims = JCNamespace (ClaimNs "") JCFJson
    in JWTConfig{..}
 
 fakeAuthHook :: AuthHook
@@ -412,7 +417,7 @@ setupAuthMode'  mAdminSecretHash mWebHook mJwtSecret mUnAuthRole =
   -- just throw away the error message for ease of testing:
   fmap (either (const $ Left ()) Right)
     $ runNoReporter
-    $ runExceptT 
+    $ runExceptT
     $ setupAuthMode mAdminSecretHash mWebHook mJwtSecret mUnAuthRole
       -- NOTE: this won't do any http or launch threads if we don't specify JWT URL:
       (error "H.Manager") (Logger $ void . return)
