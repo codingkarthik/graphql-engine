@@ -19,9 +19,11 @@ import qualified Hasura.GraphQL.Execute.Plan      as E
 import qualified Hasura.Logging                   as L
 
 import           Hasura.Prelude
+import           Hasura.GraphQL.Schema            (CaseType(..))
 import           Hasura.Server.Auth
 import           Hasura.Server.Cors
 import           Hasura.Session
+
 
 data RawConnParams
   = RawConnParams
@@ -64,6 +66,7 @@ data RawServeOptions impl
   , rsoEventsHttpPoolSize  :: !(Maybe Int)
   , rsoEventsFetchInterval :: !(Maybe Milliseconds)
   , rsoLogHeadersFromEnv   :: !Bool
+  , rsoCaseType            :: !(Maybe CaseType)
   }
 
 -- | @'ResponseInternalErrorsConfig' represents the encoding of the internal
@@ -106,6 +109,7 @@ data ServeOptions impl
   , soEventsHttpPoolSize           :: !(Maybe Int)
   , soEventsFetchInterval          :: !(Maybe Milliseconds)
   , soLogHeadersFromEnv            :: !Bool
+  , soCaseType                     :: !CaseType
   }
 
 data DowngradeOptions
@@ -213,6 +217,13 @@ readLogLevel s = case T.toLower $ T.strip $ T.pack s of
 readJson :: (J.FromJSON a) => String -> Either String a
 readJson = J.eitherDecodeStrict . txtToBs . T.pack
 
+readCaseType :: String -> Either String CaseType
+readCaseType s = case T.toLower $ T.strip $ T.pack s of
+  "camel"  -> Right Camel
+  "snake"  -> Right Snake
+  "pascal" -> Right Pascal
+  _        -> Left "Only expecting camel / snake / pascal"
+
 class FromEnv a where
   fromEnv :: String -> Either String a
 
@@ -276,6 +287,9 @@ instance FromEnv L.LogLevel where
 
 instance FromEnv Cache.CacheSize where
   fromEnv = Cache.parseCacheSize
+
+instance FromEnv CaseType where
+  fromEnv = readCaseType
 
 type WithEnv a = ReaderT Env (ExceptT String Identity) a
 

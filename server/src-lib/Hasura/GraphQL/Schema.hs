@@ -1,6 +1,7 @@
 {-# LANGUAGE Arrows #-}
 module Hasura.GraphQL.Schema
   ( buildGQLContext
+  , CaseType(..)
   ) where
 
 import           Hasura.Prelude
@@ -35,6 +36,14 @@ import           Hasura.RQL.DDL.Schema.Cache.Common
 import           Hasura.RQL.Types
 import           Hasura.Session
 import           Hasura.SQL.Types
+
+data CaseType = Camel | Snake | Pascal deriving (Show, Eq)
+
+instance J.ToJSON CaseType where
+  toJSON = J.String . \case
+    Camel  -> "camel"
+    Snake  -> "snake"
+    Pascal -> "pascal"
 
 -- | Whether the request is sent with `x-hasura-use-backend-only-permissions` set to `true`.
 data Scenario = Backend | Frontend deriving (Enum, Show, Eq)

@@ -29,6 +29,7 @@ import qualified Hasura.Logging                   as L
 import           Hasura.Db
 import           Hasura.Prelude
 import           Hasura.RQL.Types                 (QErr, SchemaCache (..))
+import           Hasura.GraphQL.Schema            (CaseType(..))
 import           Hasura.Server.Auth
 import           Hasura.Server.Cors
 import           Hasura.Server.Init.Config
@@ -168,13 +169,13 @@ mkServeOptions rso = do
   eventsHttpPoolSize <- withEnv (rsoEventsHttpPoolSize rso) (fst eventsHttpPoolSizeEnv)
   eventsFetchInterval <- withEnv (rsoEventsFetchInterval rso) (fst eventsFetchIntervalEnv)
   logHeadersFromEnv <- withEnvBool (rsoLogHeadersFromEnv rso) (fst logHeadersFromEnvEnv)
-
+  caseType <- fromMaybe Camel <$> withEnv (rsoCaseType rso) (fst casingEnv)
   return $ ServeOptions port host connParams txIso adminScrt authHook jwtSecret
                         unAuthRole corsCfg enableConsole consoleAssetsDir
                         enableTelemetry strfyNum enabledAPIs lqOpts enableAL
                         enabledLogs serverLogLevel planCacheOptions
                         internalErrorsConfig eventsHttpPoolSize eventsFetchInterval
-                        logHeadersFromEnv
+                        logHeadersFromEnv caseType
   where
 #ifdef DeveloperAPIs
     defaultAPIs = [METADATA,GRAPHQL,PGDUMP,CONFIG,DEVELOPER]
@@ -313,7 +314,7 @@ serveCmdFooter =
       , jwtSecretEnv, unAuthRoleEnv, corsDomainEnv, corsDisableEnv, enableConsoleEnv
       , enableTelemetryEnv, wsReadCookieEnv, stringifyNumEnv, enabledAPIsEnv
       , enableAllowlistEnv, enabledLogsEnv, logLevelEnv, devModeEnv
-      , adminInternalErrorsEnv
+      , adminInternalErrorsEnv, casingEnv
       ]
 
     eventEnvs = [ eventsHttpPoolSizeEnv, eventsFetchIntervalEnv ]
@@ -510,6 +511,14 @@ adminInternalErrorsEnv :: (String, String)
 adminInternalErrorsEnv =
   ( "HASURA_GRAPHQL_ADMIN_INTERNAL_ERRORS"
   , "Enables including 'internal' information in an error response for requests made by an 'admin' (default: true)"
+  )
+
+casingEnv :: (String, String)
+casingEnv =
+  ( "HASURA_GRAPHQL_CASING"
+  , "Type of casing in which the node names and type names will be generated "
+    <> "(default: camel)"
+    <> "(possible values: camel, pascal, snake)"
   )
 
 parseRawConnInfo :: Parser RawConnInfo
@@ -821,6 +830,14 @@ parseLogHeadersFromEnv =
            help (snd devModeEnv)
          )
 
+parseCaseEnv :: Parser (Maybe CaseType)
+parseCaseEnv = optional $
+  option (eitherReader fromEnv)
+  ( long "casing" <>
+    metavar (fst casingEnv) <>
+    help (snd casingEnv)
+  )
+
 mxRefetchDelayEnv :: (String, String)
 mxRefetchDelayEnv =
   ( "HASURA_GRAPHQL_LIVE_QUERIES_MULTIPLEXED_REFETCH_INTERVAL"
@@ -930,6 +947,7 @@ serveOptsToLog so =
       , "enabled_log_types" J..= soEnabledLogTypes so
       , "log_level" J..= soLogLevel so
       , "plan_cache_options" J..= soPlanCacheOptions so
+      , "case" J..= soCaseType so
       ]
 
 mkGenericStrLog :: L.LogLevel -> T.Text -> String -> StartupLog
@@ -975,6 +993,7 @@ serveOptionsParser =
   <*> parseGraphqlEventsHttpPoolSize
   <*> parseGraphqlEventsFetchInterval
   <*> parseLogHeadersFromEnv
+  <*> parseCaseEnv
 
 -- | This implements the mapping between application versions
 -- and catalog schema versions.
