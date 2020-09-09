@@ -108,7 +108,7 @@ insertOneIntoTable table fieldName description insertPerms selectPerms updatePer
 
 -- | We specify the data of an individual row to insert through this input parser.
 tableFieldsInput
-  :: forall m n r. (MonadSchema n m, MonadTableInfo r m, MonadRole r m)
+  :: forall m n r. (MonadSchema n m, MonadTableInfo r m, MonadRole r m, Has QueryContext r)
   => QualifiedTable -- ^ qualified name of the table
   -> InsPermInfo    -- ^ insert permissions of the table
   -> m (Parser 'Input n (AnnInsObj UnpreparedValue))
@@ -150,7 +150,7 @@ tableFieldsInput table insertPerms = memoizeOn 'tableFieldsInput table do
 
 -- | Used by 'tableFieldsInput' for object data that is nested through object relationships
 objectRelationshipInput
-  :: forall m n r. (MonadSchema n m, MonadTableInfo r m, MonadRole r m)
+  :: forall m n r. (MonadSchema n m, MonadTableInfo r m, MonadRole r m, Has QueryContext r)
   => QualifiedTable
   -> InsPermInfo
   -> Maybe SelPermInfo
@@ -173,7 +173,7 @@ objectRelationshipInput table insertPerms selectPerms updatePerms =
 
 -- | Used by 'tableFieldsInput' for object data that is nested through object relationships
 arrayRelationshipInput
-  :: forall m n r. (MonadSchema n m, MonadTableInfo r m, MonadRole r m)
+  :: forall m n r. (MonadSchema n m, MonadTableInfo r m, MonadRole r m, Has QueryContext r)
   => QualifiedTable
   -> InsPermInfo
   -> Maybe SelPermInfo
@@ -217,7 +217,7 @@ mkInsertObject objects table columns conflictClause insertPerms updatePerms =
 
 -- | Specifies the "ON CONFLICT" SQL clause
 conflictObject
-  :: forall m n r. (MonadSchema n m, MonadTableInfo r m, MonadRole r m)
+  :: forall m n r. (MonadSchema n m, MonadTableInfo r m, MonadRole r m, Has QueryContext r)
   => QualifiedTable
   -> Maybe SelPermInfo
   -> UpdPermInfo

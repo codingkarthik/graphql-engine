@@ -14,12 +14,14 @@ import qualified Hasura.RQL.DML.Select.Types   as RQL (Fields)
 
 import           Hasura.RQL.Types
 import           Hasura.SQL.Types
+import           Hasura.Server.Utils           (CaseType)
 
 data QueryContext =
   QueryContext
   { qcStringifyNum :: !Bool
   , qcQueryType    :: !ET.GraphQLQueryType
   , qcRemoteFields :: !(HashMap RemoteSchemaName [P.Definition P.FieldInfo])
+  , qcCaseType     :: !CaseType
   }
 
 textToName :: MonadError QErr m => Text -> m G.Name

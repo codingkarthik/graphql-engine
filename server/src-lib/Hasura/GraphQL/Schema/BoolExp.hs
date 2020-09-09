@@ -3,6 +3,7 @@ module Hasura.GraphQL.Schema.BoolExp
   ) where
 
 import           Hasura.Prelude
+import           Data.Has
 
 import qualified Data.HashMap.Strict.Extended  as M
 import qualified Language.GraphQL.Draft.Syntax as G
@@ -13,10 +14,12 @@ import           Hasura.GraphQL.Parser         (InputFieldsParser, Kind (..), Pa
                                                 UnpreparedValue, mkParameter)
 import           Hasura.GraphQL.Parser.Class
 import           Hasura.GraphQL.Schema.Table
+import           Hasura.GraphQL.Schema.Common
 import           Hasura.RQL.Types
 import           Hasura.SQL.DML
 import           Hasura.SQL.Types
 import           Hasura.SQL.Value
+import           Hasura.Server.Utils          (applyCasingToName)
 
 type ComparisonExp = OpExpG UnpreparedValue
 
@@ -29,12 +32,14 @@ type ComparisonExp = OpExpG UnpreparedValue
 -- >   ...
 -- > }
 boolExp
-  :: forall m n r. (MonadSchema n m, MonadTableInfo r m, MonadRole r m)
+  :: forall m n r. (MonadSchema n m, MonadTableInfo r m, MonadRole r m, Has QueryContext r)
   => QualifiedTable
   -> Maybe SelPermInfo
   -> m (Parser 'Input n (AnnBoolExp UnpreparedValue))
 boolExp table selectPermissions = memoizeOn 'boolExp table $ do
-  name <- qualifiedObjectToName table <&> (<> $$(G.litName "_bool_exp"))
+  caseType <- asks $ qcCaseType . getter
+  name <-
+    qualifiedObjectToName table <&> (<> (applyCasingToName caseType False $$(G.litName "_bool_exp")))
   let description = G.Description $
         "Boolean expression to filter rows from the table " <> table <<>
         ". All fields are combined with a logical 'AND'."

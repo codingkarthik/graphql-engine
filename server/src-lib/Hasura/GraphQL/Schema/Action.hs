@@ -25,6 +25,7 @@ import           Hasura.RQL.Types
 import           Hasura.Session
 import           Hasura.SQL.Types
 import           Hasura.SQL.Value
+import           Hasura.Server.Utils                 (applyCasingToName)
 
 
 -- | actionExecute is used to execute either a query action or a synchronous
@@ -108,6 +109,7 @@ actionAsyncQuery
   -> m (Maybe (FieldParser n (AnnActionAsyncQuery UnpreparedValue)))
 actionAsyncQuery actionInfo = runMaybeT do
   roleName <- lift askRoleName
+  caseType <- asks $ qcCaseType . getter
   guard $ roleName == adminRoleName || roleName `Map.member` permissions
   actionId <- lift actionIdParser
   actionOutputParser <- lift $ actionOutputFields outputObject
@@ -117,12 +119,13 @@ actionAsyncQuery actionInfo = runMaybeT do
     lift $ P.column (PGColumnScalar PGJSON) (G.Nullability True)
 
   let fieldName = unActionName actionName
+      createdAtFieldName = applyCasingToName caseType True $$(G.litName "created_at")
       description = G.Description <$> comment
       actionIdInputField =
         P.field idFieldName (Just idFieldDescription) actionId
       allFieldParsers =
         let idField        = P.selection_ idFieldName (Just idFieldDescription) actionId $> AsyncId
-            createdAtField = P.selection_ $$(G.litName "created_at")
+            createdAtField = P.selection_ createdAtFieldName
                              (Just "the time at which this action was created")
                              createdAtFieldParser $> AsyncCreatedAt
             errorsField    = P.selection_ $$(G.litName "errors")

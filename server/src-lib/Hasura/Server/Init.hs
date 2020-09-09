@@ -29,7 +29,6 @@ import qualified Hasura.Logging                   as L
 import           Hasura.Db
 import           Hasura.Prelude
 import           Hasura.RQL.Types                 (QErr, SchemaCache (..))
-import           Hasura.GraphQL.Schema            (CaseType(..))
 import           Hasura.Server.Auth
 import           Hasura.Server.Cors
 import           Hasura.Server.Init.Config

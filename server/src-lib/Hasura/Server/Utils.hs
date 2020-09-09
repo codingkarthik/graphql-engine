@@ -11,22 +11,25 @@ import           System.Environment
 import           System.Exit
 import           System.Process
 
-import qualified Data.ByteString            as B
-import qualified Data.CaseInsensitive       as CI
-import qualified Data.HashSet               as Set
-import qualified Data.List.NonEmpty         as NE
-import qualified Data.Text                  as T
-import qualified Data.Text.IO               as TI
-import qualified Data.UUID                  as UUID
-import qualified Data.UUID.V4               as UUID
-import qualified Data.Vector                as V
-import qualified Language.Haskell.TH.Syntax as TH
-import qualified Network.HTTP.Client        as HC
-import qualified Network.HTTP.Types         as HTTP
-import qualified Network.Wreq               as Wreq
-import qualified Text.Regex.TDFA            as TDFA
-import qualified Text.Regex.TDFA.ReadRegex  as TDFA
-import qualified Text.Regex.TDFA.TDFA       as TDFA
+import qualified Data.ByteString               as B
+import qualified Data.CaseInsensitive          as CI
+import qualified Data.HashSet                  as Set
+import qualified Data.List.NonEmpty            as NE
+import qualified Data.Text                     as T
+import qualified Data.Text.IO                  as TI
+import qualified Data.UUID                     as UUID
+import qualified Data.UUID.V4                  as UUID
+import qualified Data.Vector                   as V
+import qualified Language.Haskell.TH.Syntax    as TH
+import qualified Language.GraphQL.Draft.Syntax as G
+import qualified Network.HTTP.Client           as HC
+import qualified Network.HTTP.Types            as HTTP
+import qualified Network.Wreq                  as Wreq
+import qualified Text.Regex.TDFA               as TDFA
+import qualified Text.Regex.TDFA.ReadRegex     as TDFA
+import qualified Text.Regex.TDFA.TDFA          as TDFA
+import qualified Text.Casing                   as TC
+
 
 import           Hasura.RQL.Instances       ()
 
@@ -256,3 +259,31 @@ executeJSONPath jsonPath = iparse (valueParser jsonPath)
                   Key k   -> withObject "Object" (.: k)
                   Index i -> withArray "Array" $
                              maybe (fail "Array index out of range") pure . (V.!? i)
+
+data CaseType = Camel | Snake | Pascal deriving (Show, Eq)
+
+instance ToJSON CaseType where
+  toJSON = String . \case
+    Camel  -> "camel"
+    Snake  -> "snake"
+    Pascal -> "pascal"
+
+applyCasingToName :: CaseType -> Bool -> G.Name -> G.Name
+applyCasingToName caseType isWholeWord name =
+  case caseType of
+    -- All the names are originally defined in snake case
+    Snake  -> name
+    -- Many names in the codebase are hard-coded partially.
+    -- For example: "_mutation_response", converting this to
+    -- Camel Case will be "mutationResponse" and combined with
+    -- a table name say "author" will be `authormutationResponse`,
+    -- which is wrong. Now, since we want the word to be capitalized
+    -- we use Pascal Case when `isWholeWord` is set to `true` which
+    -- will return `authorMutationResponse`, which will be the
+    -- correct name.
+    Camel  -> applyCase $ bool TC.toPascal TC.toCamel isWholeWord
+    Pascal -> applyCase TC.toPascal
+  where
+    -- using `unsafeMkName` is justified here because we're just
+    -- changing the case of a `Name`
+    applyCase f = G.unsafeMkName . T.pack . f . TC.fromSnake . T.unpack . G.unName $ name

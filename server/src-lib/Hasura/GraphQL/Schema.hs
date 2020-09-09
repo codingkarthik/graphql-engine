@@ -36,14 +36,7 @@ import           Hasura.RQL.DDL.Schema.Cache.Common
 import           Hasura.RQL.Types
 import           Hasura.Session
 import           Hasura.SQL.Types
-
-data CaseType = Camel | Snake | Pascal deriving (Show, Eq)
-
-instance J.ToJSON CaseType where
-  toJSON = J.String . \case
-    Camel  -> "camel"
-    Snake  -> "snake"
-    Pascal -> "pascal"
+import           Hasura.Server.Utils                (CaseType(..), applyCasingToName)
 
 -- | Whether the request is sent with `x-hasura-use-backend-only-permissions` set to `true`.
 data Scenario = Backend | Frontend deriving (Enum, Show, Eq)
@@ -100,7 +93,8 @@ buildGQLContext =
                       allActionInfos nonObjectCustomTypes
                 <*> mutation (Set.fromMap $ validTables $> ()) mempty
                       allActionInfos nonObjectCustomTypes
-          flip runReaderT (adminRoleName, validTables, Frontend, QueryContext stringifyNum queryType queryRemotesMap) $
+          -- FIXME: Remove the hardcoded `Snake` from here
+          flip runReaderT (adminRoleName, validTables, Frontend, QueryContext stringifyNum queryType queryRemotesMap Camel) $
             P.runSchemaT gqlContext
 
     -- build the admin context so that we can check against name clashes with remotes
@@ -184,7 +178,8 @@ buildGQLContext =
                 <$> (finalizeParser <$> queryHasuraOrRelay)
                 <*> (fmap finalizeParser <$> mutation (Set.fromList $ Map.keys validTables) mutationRemotes
                      allActionInfos nonObjectCustomTypes)
-          flip runReaderT (roleName, validTables, scenario, QueryContext stringifyNum queryType queryRemotesMap) $
+          -- FIXME: Remove the hardcoded `Snake` from here
+          flip runReaderT (roleName, validTables, scenario, QueryContext stringifyNum queryType queryRemotesMap Camel) $
             P.runSchemaT gqlContext
 
         buildContextForRole :: RoleName -> m (RoleContext GQLContext)
@@ -220,15 +215,16 @@ query'
   -> NonObjectTypeMap
   -> m [P.FieldParser n (QueryRootField UnpreparedValue)]
 query' allTables allFunctions allRemotes allActions nonObjectCustomTypes = do
+  caseType <- asks $ qcCaseType . getter
   tableSelectExpParsers <- for (toList allTables) \table -> do
     selectPerms <- tableSelectPermissions table
     customRootFields <- _tcCustomRootFields . _tciCustomConfig . _tiCoreInfo <$> askTableInfo table
     for selectPerms \perms -> do
       displayName <- qualifiedObjectToName table
       let fieldsDesc = G.Description $ "fetch data from the table: " <>> table
-          aggName = displayName <> $$(G.litName "_aggregate")
+          aggName = displayName <> (applyCasingToName caseType False $$(G.litName "_aggregate"))
           aggDesc = G.Description $ "fetch aggregated fields from the table: " <>> table
-          pkName = displayName <> $$(G.litName "_by_pk")
+          pkName = displayName <> (applyCasingToName caseType False $$(G.litName "_by_pk"))
           pkDesc = G.Description $ "fetch data from the table: " <> table <<> " using primary key columns"
       catMaybes <$> sequenceA
         [ requiredFieldParser (RFDB . QDBSimple)      $ selectTable          table (fromMaybe displayName $ _tcrfSelect          customRootFields) (Just fieldsDesc) perms
@@ -242,7 +238,7 @@ query' allTables allFunctions allRemotes allActions nonObjectCustomTypes = do
     for selectPerms \perms -> do
       displayName <- qualifiedObjectToName functionName
       let functionDesc = G.Description $ "execute function " <> functionName <<> " which returns " <>> targetTable
-          aggName = displayName <> $$(G.litName "_aggregate")
+          aggName = displayName <> (applyCasingToName caseType False $$(G.litName "_aggregate"))
           aggDesc = G.Description $ "execute function " <> functionName <<> " and query aggregates on result of table type " <>> targetTable
       catMaybes <$> sequenceA
         [ requiredFieldParser (RFDB . QDBSimple)      $ selectFunction          function displayName (Just functionDesc) perms
