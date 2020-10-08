@@ -271,9 +271,9 @@ convertQuerySelSet env logger gqlContext userInfo manager reqHeaders directives 
 
   -- Transform the query plans into an execution plan
   let executionPlan = queryPlan <&> \case
-        RFRemote (RemoteField remoteSchemaInfo remoteField _validationInfo _gType) ->
+        RFRemote (RemoteField remoteSchemaInfo remoteField validationInfo gType) ->
           trace ("\n\nremote field is " <> (show remoteField) <> "\n\n") $
-          trace ("\n\nremote field is " <> (show _validationInfo) <> "\n\n") $
+          trace ("\n\nremote field is " <> (show validationInfo) <> "\n\n") $
 --          trace ("field type defn is " <> (show _fldType)) $
           buildExecStepRemote
             remoteSchemaInfo
@@ -281,6 +281,8 @@ convertQuerySelSet env logger gqlContext userInfo manager reqHeaders directives 
             varDefs
             [G.SelectionField remoteField]
             varValsM
+            validationInfo
+            gType
         RFDB db      -> ExecStepDB $ mkCurPlanTx env manager reqHeaders userInfo instrument ep (RFPPostgres db)
         RFAction rfp -> ExecStepDB $ mkCurPlanTx env manager reqHeaders userInfo instrument ep rfp
         RFRaw r      -> ExecStepRaw r

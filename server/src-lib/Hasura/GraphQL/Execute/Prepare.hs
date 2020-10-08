@@ -2,7 +2,7 @@ module Hasura.GraphQL.Execute.Prepare
   ( PlanVariables
   , PrepArgMap
   , PlanningSt(..)
-  , RemoteCall
+  , RemoteCall(..)
   , ExecutionPlan
   , ExecutionStep(..)
   , initPlanningSt
@@ -46,7 +46,16 @@ type PrepArgMap = IntMap.IntMap (Q.PrepArg, PGScalarValue)
 -- database and things to run on remote schemas.
 type ExecutionPlan db = InsOrdHashMap G.Name (ExecutionStep db)
 
-type RemoteCall = (RemoteSchemaInfo, G.TypedOperationDefinition G.NoFragments G.Name, Maybe GH.VariableValues)
+-- type RemoteCall = (RemoteSchemaInfo, G.TypedOperationDefinition G.NoFragments G.Name, Maybe GH.VariableValues)
+
+data RemoteCall
+  = RemoteCall
+  { _rcRemoteSchemaInfo         :: !RemoteSchemaInfo
+  , _rcTypedOperationDefinition :: !(G.TypedOperationDefinition G.NoFragments G.Name)
+  , _rcVariableValues           :: !(Maybe GH.VariableValues)
+  , _rcValidationInfo           :: !ValidateRemoteFieldInfo
+  , _rcGType                    :: !G.GType
+  } deriving (Show, Eq)
 
 -- | One execution step to processing a GraphQL query (e.g. one root field).
 -- Polymorphic to allow the SQL to be generated in stages.

@@ -443,17 +443,17 @@ remoteField sdoc fieldName description argsDefn typeDefn = do
       let objSelection = P.rawSubselection fieldName description argsParser remoteSchemaObj
       pure $ objSelection <&> (\(alias, args, _, selSetAndValidateInfo) ->
                                  let selSet = map fst selSetAndValidateInfo
-                                     validationInfo = map fst (map snd selSetAndValidateInfo)
+                                     validationInfo = (map snd selSetAndValidateInfo)
                                  in
                                  ( (G.Field alias fieldName (fmap getName <$> args) mempty selSet)
-                                 , VRFObject $ validationInfo))
+                                 , VRFObject (fromMaybe fieldName alias) $ validationInfo))
     G.TypeDefinitionScalar scalarTypeDefn ->
       let scalarField = remoteFieldScalarParser scalarTypeDefn
           scalarSelection = P.rawSelection fieldName description argsParser scalarField
       in
       pure $ (scalarSelection <&> (\(alias, args, _) ->
                                      ( (G.Field alias fieldName (fmap getName <$> args) mempty [])
-                                     , VRFScalar)))
+                                     , VRFScalar $ fromMaybe fieldName alias)))
     G.TypeDefinitionEnum enumTypeDefn ->
       let enumField = remoteFieldEnumParser enumTypeDefn
           enumSelection = P.rawSelection fieldName description argsParser enumField
@@ -461,7 +461,7 @@ remoteField sdoc fieldName description argsDefn typeDefn = do
       in
       pure $ enumSelection <&> (\(alias, _, _) ->
                                   ( (G.Field alias fieldName mempty mempty [])
-                                  , VRFEnum enumVals))
+                                  , VRFEnum (G._etdName enumTypeDefn) $ enumVals))
     G.TypeDefinitionInterface ifaceTypeDefn -> do
       remoteSchemaObj <- remoteSchemaInterface sdoc ifaceTypeDefn
       pure $ P.rawSubselection fieldName description argsParser remoteSchemaObj <&>

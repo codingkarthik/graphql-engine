@@ -38,10 +38,12 @@ import qualified Data.Aeson.Ordered                     as JO
 import qualified Data.ByteString.Lazy                   as LBS
 import qualified Data.Environment                       as Env
 import qualified Data.HashMap.Strict.InsOrd             as OMap
+import qualified Data.HashMap.Strict                    as Map
 import qualified Data.Text                              as T
 import qualified Database.PG.Query                      as Q
 import qualified Hasura.GraphQL.Execute                 as E
 import qualified Hasura.GraphQL.Execute.Query           as EQ
+import qualified Hasura.GraphQL.Execute.Remote          as ER
 import qualified Hasura.Logging                         as L
 import qualified Hasura.Server.Telemetry.Counters       as Telem
 import qualified Hasura.Tracing                         as Tracing
@@ -157,8 +159,8 @@ runGQ env logger reqId userInfo ipAddress reqHeaders queryType reqUnparsed = do
                 (telemTimeIO_DT, resp) <-
                   runQueryDB reqId reqUnparsed fieldName tx genSql
                 return $ ResultsFragment telemTimeIO_DT Telem.Local resp []
-              E.ExecStepRemote (rsi, opDef, varValsM) ->
-                runRemoteGQ fieldName rsi opDef varValsM
+              E.ExecStepRemote (E.RemoteCall rsi opDef varValsM fieldValidationInfo gType) ->
+                runRemoteGQ fieldName rsi opDef varValsM fieldValidationInfo gType
               E.ExecStepRaw json ->
                 buildRaw json
             out@(_, _, _, HttpResponse responseData _) <- buildResult Telem.Query conclusion responseHeaders
@@ -170,8 +172,8 @@ runGQ env logger reqId userInfo ipAddress reqHeaders queryType reqUnparsed = do
           E.ExecStepDB (tx, responseHeaders) -> doQErr $ do
             (telemTimeIO_DT, resp) <- runMutationDB reqId reqUnparsed userInfo tx
             return $ ResultsFragment telemTimeIO_DT Telem.Local resp responseHeaders
-          E.ExecStepRemote (rsi, opDef, varValsM) ->
-            runRemoteGQ fieldName rsi opDef varValsM
+          E.ExecStepRemote (E.RemoteCall rsi opDef varValsM fieldValidationInfo gType) ->
+            runRemoteGQ fieldName rsi opDef varValsM fieldValidationInfo gType
           E.ExecStepRaw json ->
             buildRaw json
         buildResult Telem.Mutation conclusion []
@@ -189,10 +191,13 @@ runGQ env logger reqId userInfo ipAddress reqHeaders queryType reqUnparsed = do
 
     forWithKey = flip OMap.traverseWithKey
 
-    runRemoteGQ fieldName rsi opDef varValsM = do
+    runRemoteGQ fieldName rsi opDef varValsM fieldValidationInfo gType = do
       (telemTimeIO_DT, HttpResponse resp remoteResponseHeaders) <-
         doQErr $ E.execRemoteGQ env reqId userInfo reqHeaders rsi opDef varValsM
-      value <- extractFieldFromResponse (G.unName fieldName) $ encJToLBS resp
+      value <- extractFieldFromResponse (G.unName fieldName) $ encJToLBS resp -- FIXME: change this function to take valObj
+      doQErr $
+        ER.validateRemoteResponse fieldValidationInfo gType $
+          Map.singleton (G.unName fieldName) $ JO.fromOrdered value
       let filteredHeaders = filter ((== "Set-Cookie") . fst) remoteResponseHeaders
       pure $ ResultsFragment telemTimeIO_DT Telem.Remote (JO.toEncJSON value) filteredHeaders
 

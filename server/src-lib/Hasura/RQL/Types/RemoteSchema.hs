@@ -29,11 +29,11 @@ newtype RemoteSchemaName
            )
 
 data ValidateRemoteFieldInfo
-  = VRFScalar
-  | VRFEnum ![G.EnumValue]
+  = VRFScalar !G.Name
+  | VRFEnum !G.Name ![G.EnumValue]
   | VRFUnion ![ValidateRemoteFieldInfo]
   | VRFInterface ![ValidateRemoteFieldInfo]
-  | VRFObject ![ValidateRemoteFieldInfo]
+  | VRFObject !G.Name ![(ValidateRemoteFieldInfo, G.GType)]
   | VRFTypename !G.Name
   deriving (Show, Eq)
 

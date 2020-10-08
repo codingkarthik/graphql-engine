@@ -371,7 +371,7 @@ onStart env serverEnv wsConn (StartMsg opId q) = catchAndIgnore $ do
               (telemTimeIO_DT, (resp)) <- Tracing.interpTraceT id $ withElapsedTime $
                 hoist (runQueryTx pgExecCtx) tx
               return $ ResultsFragment telemTimeIO_DT Telem.Local resp []
-            E.ExecStepRemote (rsi, opDef, varValsM) -> do
+            E.ExecStepRemote (E.RemoteCall rsi opDef varValsM _fieldValidationInfo _gType) -> do
               runRemoteGQ fieldName execCtx requestId userInfo reqHdrs opDef rsi varValsM
             E.ExecStepRaw json ->
               buildRaw json
@@ -392,7 +392,7 @@ onStart env serverEnv wsConn (StartMsg opId q) = catchAndIgnore $ do
             (runLazyTx pgExecCtx Q.ReadWrite . withTraceContext ctx . withUserInfo userInfo)
             $ withElapsedTime tx
           return $ ResultsFragment telemTimeIO_DT Telem.Local resp []
-        E.ExecStepRemote (rsi, opDef, varValsM) -> do
+        E.ExecStepRemote (E.RemoteCall rsi opDef varValsM _fieldValidationInfo _gType) -> do
           runRemoteGQ fieldName execCtx requestId userInfo reqHdrs opDef rsi varValsM
         E.ExecStepRaw json ->
           buildRaw json

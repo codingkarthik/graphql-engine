@@ -173,13 +173,15 @@ convertMutationSelectionSet env logger gqlContext sqlGenCtx userInfo manager req
       remoteJoinCtx = (manager, reqHeaders, userInfo)
   txs <- for unpreparedQueries \case
     RFDB db             -> ExecStepDB <$> convertMutationDB env userSession remoteJoinCtx (stringifyNum sqlGenCtx) db
-    RFRemote (RemoteField remoteSchemaInfo remoteField _validationInfo _gType) ->
+    RFRemote (RemoteField remoteSchemaInfo remoteField fieldValidationInfo gType) ->
       pure $ buildExecStepRemote
              remoteSchemaInfo
              G.OperationTypeMutation
              varDefs
              [G.SelectionField remoteField]
              varValsM
+             fieldValidationInfo
+             gType
     RFAction action     -> ExecStepDB <$> convertMutationAction env logger userInfo manager reqHeaders action
     RFRaw s             -> pure $ ExecStepRaw s
 

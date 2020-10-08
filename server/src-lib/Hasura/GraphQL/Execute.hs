@@ -16,6 +16,7 @@ module Hasura.GraphQL.Execute
   -- , EP.dumpPlanCache
   , EQ.PreparedSql(..)
   , ExecutionCtx(..)
+  , EPr.RemoteCall(..)
 
   , MonadGQLExecutionCheck(..)
   , checkQueryInAllowlist
