@@ -5,6 +5,7 @@ module Hasura.GraphQL.Schema.Remote
   , lookupObject
   , lookupType
   , lookupScalar
+  , RemoteField
   ) where
 
 import           Hasura.Prelude
@@ -22,28 +23,25 @@ import           Data.Foldable                         (sequenceA_)
 import           Hasura.GraphQL.Parser                 as P
 import qualified Hasura.GraphQL.Parser.Internal.Parser as P
 
-
-type RemoteField = Field NoFragments G.Name
-
 buildRemoteParser
   :: forall m n
    . (MonadSchema n m, MonadError QErr m)
   => IntrospectionResult
   -> RemoteSchemaInfo
-  -> m ( [P.FieldParser n (RemoteSchemaInfo, RemoteField)]
-       , Maybe [P.FieldParser n (RemoteSchemaInfo, RemoteField)]
-       , Maybe [P.FieldParser n (RemoteSchemaInfo, RemoteField)])
+  -> m ( [P.FieldParser n RemoteField]
+       , Maybe [P.FieldParser n RemoteField]
+       , Maybe [P.FieldParser n RemoteField])
 buildRemoteParser (IntrospectionResult sdoc query_root mutation_root subscription_root) info = do
   queryT <- makeParsers query_root
   mutationT <- traverse makeParsers mutation_root
   subscriptionT <- traverse makeParsers subscription_root
   return (queryT, mutationT, subscriptionT)
   where
-    makeFieldParser :: G.FieldDefinition -> m (P.FieldParser n (RemoteSchemaInfo, RemoteField))
+    makeFieldParser :: G.FieldDefinition -> m (P.FieldParser n RemoteField)
     makeFieldParser fieldDef = do
       fldParser <- remoteField' sdoc fieldDef
-      pure $ fldParser <&> (\fp -> (info, fp))
-    makeParsers :: G.Name -> m [P.FieldParser n (RemoteSchemaInfo, RemoteField)]
+      pure $ fldParser <&> (\(fld, validationInfo, gType) -> (RemoteField info fld validationInfo gType))
+    makeParsers :: G.Name -> m [P.FieldParser n RemoteField]
     makeParsers rootName =
       case lookupType sdoc rootName of
         Just (G.TypeDefinitionObject o) ->
@@ -55,19 +53,23 @@ remoteField'
   . (MonadSchema n m, MonadError QErr m)
   => SchemaIntrospection
   -> G.FieldDefinition
-  -> m (FieldParser n RemoteField)
-remoteField' schemaDoc (G.FieldDefinition description name argsDefinition gType _) =
+  -> m (FieldParser n ((Field NoFragments G.Name), ValidateRemoteFieldInfo, G.GType))
+remoteField' schemaDoc (G.FieldDefinition description name argsDefinition gType _) = do
   let
-    addNullableList :: FieldParser n RemoteField -> FieldParser n RemoteField
+    addNullableList
+      :: FieldParser n ((Field NoFragments G.Name), ValidateRemoteFieldInfo)
+      -> FieldParser n ((Field NoFragments G.Name), ValidateRemoteFieldInfo)
     addNullableList (P.FieldParser (Definition name' un desc (FieldInfo args typ)) parser)
       = P.FieldParser (Definition name' un desc (FieldInfo args (Nullable (TList typ)))) parser
 
-    addNonNullableList :: FieldParser n RemoteField -> FieldParser n RemoteField
+    addNonNullableList
+      :: FieldParser n ((Field NoFragments G.Name), ValidateRemoteFieldInfo)
+      -> FieldParser n ((Field NoFragments G.Name), ValidateRemoteFieldInfo)
     addNonNullableList (P.FieldParser (Definition name' un desc (FieldInfo args typ)) parser)
       = P.FieldParser (Definition name' un desc (FieldInfo args (NonNullable (TList typ)))) parser
 
     -- TODO add directives, deprecation
-    convertType :: G.GType -> m (FieldParser n RemoteField)
+    convertType :: G.GType -> m (FieldParser n ((Field NoFragments G.Name), ValidateRemoteFieldInfo))
     convertType gType' = do
         case gType' of
           G.TypeNamed (Nullability True) fieldTypeName ->
@@ -78,7 +80,9 @@ remoteField' schemaDoc (G.FieldDefinition description name argsDefinition gType 
             P.nullableField <$> remoteFieldFromName schemaDoc name description fieldTypeName argsDefinition
           G.TypeList (Nullability False) gType'' ->
             addNonNullableList <$> convertType gType''
-  in convertType gType
+
+  convertedType <- convertType gType
+  pure $ convertedType <&> (\(fld, validationInfo) -> (fld, validationInfo, gType))
 
 -- | 'remoteSchemaObject' returns a output parser for a given 'ObjectTypeDefinition'.
 remoteSchemaObject
@@ -86,7 +90,7 @@ remoteSchemaObject
   . (MonadSchema n m, MonadError QErr m)
   => SchemaIntrospection
   -> G.ObjectTypeDefinition
-  -> m (Parser 'Output n (SelectionSet NoFragments G.Name))
+  -> m (Parser 'Output n [(Selection NoFragments G.Name, (ValidateRemoteFieldInfo, G.GType))])
 remoteSchemaObject schemaDoc defn@(G.ObjectTypeDefinition description name interfaces _directives subFields) =
   P.memoizeOn 'remoteSchemaObject defn do
   subFieldParsers <- traverse (remoteField' schemaDoc) subFields
@@ -96,9 +100,11 @@ remoteSchemaObject schemaDoc defn@(G.ObjectTypeDefinition description name inter
   traverse_ validateImplementsFields interfaceDefs
   pure $ P.selectionSetObject name description subFieldParsers implements <&>
     toList . (OMap.mapWithKey $ \alias -> \case
-        P.SelectField fld  -> G.SelectionField fld
+        P.SelectField (fld, validationInfo, gType)  -> (G.SelectionField fld, (validationInfo, gType))
         P.SelectTypename _ ->
-          G.SelectionField (G.Field (Just alias) $$(G.litName "__typename") mempty mempty mempty)
+          ( G.SelectionField (G.Field (Just alias) $$(G.litName "__typename") mempty mempty mempty)
+          , ((VRFTypename alias), (G.TypeNamed (G.Nullability False) $$(G.litName "String")))
+          )
     )
   where
     getInterface :: G.Name -> m (G.InterfaceTypeDefinition [G.Name])
@@ -185,8 +191,9 @@ remoteSchemaInterface schemaDoc defn@(G.InterfaceTypeDefinition description name
   objs :: [Parser 'Output n (Name, (SelectionSet NoFragments G.Name))] <-
     traverse (\objName -> do
                  obj <- getObject objName
-                 rsObj <- remoteSchemaObject schemaDoc obj
-                 return $ (objName,) <$> rsObj)
+                 remoteSchemaObj' <- remoteSchemaObject schemaDoc obj
+                 let remoteSchemaObj = remoteSchemaObj' <&> (map fst)
+                 return $ (objName,) <$> remoteSchemaObj)
              possibleTypes
   -- In the Draft GraphQL spec (> June 2018), interfaces can themselves
   -- implement superinterfaces.  In the future, we may need to support this
@@ -258,14 +265,15 @@ remoteSchemaUnion
   . (MonadSchema n m, MonadError QErr m)
   => SchemaIntrospection
   -> G.UnionTypeDefinition
-  -> m (Parser 'Output n (SelectionSet NoFragments G.Name))
+  -> m (Parser 'Output n (G.SelectionSet G.NoFragments G.Name))
 remoteSchemaUnion schemaDoc defn@(G.UnionTypeDefinition description name _directives objectNames) =
   P.memoizeOn 'remoteSchemaObject defn do
   objs :: [Parser 'Output n (Name, (SelectionSet NoFragments G.Name))] <-
     traverse (\objName -> do
                  obj <- getObject objName
-                 rsObj <- remoteSchemaObject schemaDoc obj
-                 return $ (objName,) <$> rsObj)
+                 remoteSchemaObj' <- remoteSchemaObject schemaDoc obj
+                 let remoteSchemaObj = remoteSchemaObj' <&> map fst
+                 return $ (objName,) <$> remoteSchemaObj)
              objectNames
   when (null objs) $
     throw400 RemoteSchemaError $ "List of member types cannot be empty for union type " <> squote name
@@ -350,7 +358,7 @@ remoteFieldFromName
   -> Maybe G.Description
   -> G.Name
   -> G.ArgumentsDefinition
-  -> m (FieldParser n RemoteField)
+  -> m (FieldParser n ((Field NoFragments G.Name), ValidateRemoteFieldInfo))
 remoteFieldFromName sdoc fieldName description fieldTypeName argsDefns =
   case lookupType sdoc fieldTypeName of
     Nothing -> throw400 RemoteSchemaError $ "Could not find type with name " <>> fieldName
@@ -425,7 +433,7 @@ remoteField
   -> Maybe G.Description
   -> G.ArgumentsDefinition
   -> G.TypeDefinition [G.Name]
-  -> m (FieldParser n RemoteField)
+  -> m (FieldParser n ((Field NoFragments G.Name), ValidateRemoteFieldInfo))
 remoteField sdoc fieldName description argsDefn typeDefn = do
   -- TODO add directives
   argsParser <- argumentsParser argsDefn sdoc
@@ -433,28 +441,45 @@ remoteField sdoc fieldName description argsDefn typeDefn = do
     G.TypeDefinitionObject objTypeDefn -> do
       remoteSchemaObj <- remoteSchemaObject sdoc objTypeDefn
       let objSelection = P.rawSubselection fieldName description argsParser remoteSchemaObj
-      pure $ objSelection <&> (\(alias, args, _, selSet) ->
-                                 (G.Field alias fieldName (fmap getName <$> args) mempty selSet))
+      pure $ objSelection <&> (\(alias, args, _, selSetAndValidateInfo) ->
+                                 let selSet = map fst selSetAndValidateInfo
+                                     validationInfo = map fst (map snd selSetAndValidateInfo)
+                                 in
+                                 ( (G.Field alias fieldName (fmap getName <$> args) mempty selSet)
+                                 , VRFObject $ validationInfo))
     G.TypeDefinitionScalar scalarTypeDefn ->
       let scalarField = remoteFieldScalarParser scalarTypeDefn
           scalarSelection = P.rawSelection fieldName description argsParser scalarField
       in
-      pure $ (scalarSelection <&> (\(alias, args, _) -> (G.Field alias fieldName (fmap getName <$> args) mempty [])))
+      pure $ (scalarSelection <&> (\(alias, args, _) ->
+                                     ( (G.Field alias fieldName (fmap getName <$> args) mempty [])
+                                     , VRFScalar)))
     G.TypeDefinitionEnum enumTypeDefn ->
       let enumField = remoteFieldEnumParser enumTypeDefn
           enumSelection = P.rawSelection fieldName description argsParser enumField
+          enumVals = map G._evdName $ G._etdValueDefinitions enumTypeDefn
       in
-      pure $ enumSelection <&> (\(alias, _, _) -> (G.Field alias fieldName mempty mempty []))
+      pure $ enumSelection <&> (\(alias, _, _) ->
+                                  ( (G.Field alias fieldName mempty mempty [])
+                                  , VRFEnum enumVals))
     G.TypeDefinitionInterface ifaceTypeDefn -> do
       remoteSchemaObj <- remoteSchemaInterface sdoc ifaceTypeDefn
       pure $ P.rawSubselection fieldName description argsParser remoteSchemaObj <&>
         (\(alias, args, _, selSet) ->
-           (G.Field alias fieldName (fmap getName <$> args) mempty selSet))
+           ((G.Field alias fieldName (fmap getName <$> args) mempty selSet)
+            -- FIXME: we should get the field definitions of the fields that are queried
+            -- It should include the field definitions from all the fragments that have been
+            -- queried
+           , VRFInterface []))
     G.TypeDefinitionUnion unionTypeDefn -> do
       remoteSchemaObj <- remoteSchemaUnion sdoc unionTypeDefn
       pure $ P.rawSubselection fieldName description argsParser remoteSchemaObj <&>
         (\(alias, args, _, selSet) ->
-           (G.Field alias fieldName (fmap getName <$> args) mempty selSet))
+           ( (G.Field alias fieldName (fmap getName <$> args) mempty selSet)
+            -- FIXME: we should get the field definitions of the fields that are queried
+            -- It should include the field definitions from all the fragments that have been
+            -- queried
+           , VRFUnion []))
     _ -> throw400 RemoteSchemaError "expected output type, but got input type"
 
 remoteFieldScalarParser

@@ -7,7 +7,6 @@ module Hasura.GraphQL.Context
   , RootField(..)
   , traverseDB
   , traverseAction
-  , RemoteField
   , QueryDB(..)
   , ActionQuery(..)
   , QueryRootField
@@ -96,9 +95,7 @@ data ActionQuery v
   = AQQuery !(RQL.AnnActionExecution v)
   | AQAsync !(RQL.AnnActionAsyncQuery v)
 
-type RemoteField = (RQL.RemoteSchemaInfo, G.Field G.NoFragments G.Name)
-
-type QueryRootField v = RootField (QueryDB v) RemoteField (ActionQuery v) J.Value
+type QueryRootField v = RootField (QueryDB v) RQL.RemoteField (ActionQuery v) J.Value
 
 data MutationDB v
   = MDBInsert (AnnInsert   v)
@@ -110,7 +107,7 @@ data ActionMutation v
   | AMAsync !RQL.AnnActionMutationAsync
 
 type MutationRootField v =
-  RootField (MutationDB v) RemoteField (ActionMutation v) J.Value
+  RootField (MutationDB v) RQL.RemoteField (ActionMutation v) J.Value
 
 type SubscriptionRootField v = RootField (QueryDB v) Void (RQL.AnnActionAsyncQuery v) Void
 type SubscriptionRootFieldResolved = RootField (QueryDB S.SQLExp) Void RQL.AnnSimpleSel Void

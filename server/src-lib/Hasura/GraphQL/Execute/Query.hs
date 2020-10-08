@@ -46,6 +46,7 @@ import           Hasura.Session
 import           Hasura.SQL.Value
 
 import qualified Hasura.RQL.DML.Select                  as DS
+import Debug.Trace (trace)
 
 data PreparedSql
   = PreparedSql
@@ -270,7 +271,10 @@ convertQuerySelSet env logger gqlContext userInfo manager reqHeaders directives 
 
   -- Transform the query plans into an execution plan
   let executionPlan = queryPlan <&> \case
-        RFRemote (remoteSchemaInfo, remoteField) ->
+        RFRemote (RemoteField remoteSchemaInfo remoteField _validationInfo _gType) ->
+          trace ("\n\nremote field is " <> (show remoteField) <> "\n\n") $
+          trace ("\n\nremote field is " <> (show _validationInfo) <> "\n\n") $
+--          trace ("field type defn is " <> (show _fldType)) $
           buildExecStepRemote
             remoteSchemaInfo
             G.OperationTypeQuery

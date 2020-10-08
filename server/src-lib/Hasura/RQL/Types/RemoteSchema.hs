@@ -10,6 +10,7 @@ import qualified Data.Text                  as T
 import qualified Database.PG.Query          as Q
 import qualified Network.URI.Extended       as N
 import qualified Data.Environment           as Env
+import qualified Language.GraphQL.Draft.Syntax as G
 
 import           Hasura.Incremental         (Cacheable)
 import           Hasura.RQL.DDL.Headers     (HeaderConf (..))
@@ -26,6 +27,23 @@ newtype RemoteSchemaName
            , J.FromJSON, Q.ToPrepArg, Q.FromCol, DQuote, NFData
            , Generic, Cacheable, Arbitrary
            )
+
+data ValidateRemoteFieldInfo
+  = VRFScalar
+  | VRFEnum ![G.EnumValue]
+  | VRFUnion ![ValidateRemoteFieldInfo]
+  | VRFInterface ![ValidateRemoteFieldInfo]
+  | VRFObject ![ValidateRemoteFieldInfo]
+  | VRFTypename !G.Name
+  deriving (Show, Eq)
+
+data RemoteField
+  =  RemoteField
+  { _rfRemoteSchemaInfo :: !RemoteSchemaInfo
+  , _rfField            :: !(G.Field G.NoFragments G.Name)
+  , _rfValidationInfo   :: !ValidateRemoteFieldInfo
+  , _rfGType            :: !G.GType
+  } deriving (Show, Eq)
 
 data RemoteSchemaInfo
   = RemoteSchemaInfo
