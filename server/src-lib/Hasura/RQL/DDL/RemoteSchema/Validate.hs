@@ -16,6 +16,8 @@ import qualified Data.HashSet                          as S
 import qualified Data.List.NonEmpty                    as NE
 import qualified Data.Text                             as T
 import qualified Hasura.GraphQL.Parser                 as P
+import Debug.Trace (traceM)
+import Debug.Pretty.Simple (pTraceM)
 
 data FieldDefinitionType
   = ObjectField
@@ -226,6 +228,7 @@ parsePresetDirective
   -> G.Directive Void
   -> m (G.Value P.Variable)
 parsePresetDirective gType parentArgName (G.Directive name args) = do
+  traceM ("parsePresetDirective called args - " <> (show args))
   case (Map.toList args) of
     [] -> refute $ pure $ NoPresetArgumentFound
     [(argName, argVal)] -> do
@@ -233,7 +236,9 @@ parsePresetDirective gType parentArgName (G.Directive name args) = do
       -- I guess this will only be possible only in the case of static presets
       unless (argName == $$(G.litName "value")) $ do
         refute $ pure $ InvalidPresetArgument argName
-      mkPresetArgument' gType parentArgName argVal
+      x <- mkPresetArgument' gType parentArgName argVal
+      traceM ("x is " <> (show x))
+      pure x
     _ -> refute $ pure $ MultipleArgumentsInPresetFound
   where
     mkPresetArgument' :: G.GType -> G.Name -> G.Value Void -> m (G.Value P.Variable)
@@ -391,7 +396,7 @@ validateInputValueDefinition providedDefn upstreamDefn inputObjectName = do
       NonMatchingDefaultValue inputObjectName providedName
                               upstreamDefaultValue providedDefaultValue
   presetArguments <- for presetDirective $ parsePresetDirective providedType providedName
-  pure $ RemoteSchemaInputValueDefinition providedDefn presetArguments
+  pure $ RemoteSchemaInputValueDefinition providedDefn $ presetArguments
   where
     G.InputValueDefinition _ providedName providedType providedDefaultValue providedDirectives  = providedDefn
     G.InputValueDefinition _ _ upstreamType upstreamDefaultValue upstreamDirectives  = upstreamDefn
