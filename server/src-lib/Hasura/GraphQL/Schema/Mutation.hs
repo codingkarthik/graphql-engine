@@ -81,7 +81,12 @@ mkConflictClause conflictParser
 
 -- | Variant of 'insertIntoTable' that inserts a single row
 insertOneIntoTable
-  :: forall m n r. (MonadSchema n m, MonadTableInfo r m, MonadRole r m, Has QueryContext r)
+  :: forall m n r.
+  ( MonadSchema n m
+  , MonadTableInfo r m
+  , MonadRole r m
+  , Has QueryContext r
+  )
   => QualifiedTable       -- ^ qualified name of the table
   -> G.Name               -- ^ field display name
   -> Maybe G.Description  -- ^ field description, if any
@@ -113,7 +118,8 @@ tableFieldsInput
   -> InsPermInfo 'Postgres    -- ^ insert permissions of the table
   -> m (Parser 'Input n (IR.AnnInsObj 'Postgres UnpreparedValue))
 tableFieldsInput table insertPerms = memoizeOn 'tableFieldsInput table do
-  tableGQLName    <- getTableGQLName table
+  roleName <- askRoleName
+  tableGQLName <- getTableGQLName table
   allFields    <- _tciFieldInfoMap . _tiCoreInfo <$> askTableInfo table
   objectFields <- catMaybes <$> for (Map.elems allFields) \case
     FIComputedField _ -> pure Nothing
@@ -128,7 +134,7 @@ tableFieldsInput table insertPerms = memoizeOn 'tableFieldsInput table do
     FIRelationship relationshipInfo -> runMaybeT $ do
       let otherTable = riRTable  relationshipInfo
           relName    = riName    relationshipInfo
-      permissions  <- MaybeT $ tablePermissions otherTable
+      permissions  <- MaybeT $ tablePermissions otherTable roleName
       relFieldName <- lift $ textToName $ relNameToTxt relName
       insPerms     <- MaybeT $ pure $ _permIns permissions
       let selPerms = _permSel permissions

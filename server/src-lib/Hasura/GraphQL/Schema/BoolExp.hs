@@ -20,6 +20,8 @@ import           Hasura.GraphQL.Parser.Class
 import           Hasura.GraphQL.Schema.Table
 import           Hasura.RQL.Types
 
+import           Hasura.Session
+
 type ComparisonExp b = OpExpG b UnpreparedValue
 
 -- |
@@ -31,11 +33,12 @@ type ComparisonExp b = OpExpG b UnpreparedValue
 -- >   ...
 -- > }
 boolExp
-  :: forall m n r. (MonadSchema n m, MonadTableInfo r m, MonadRole r m)
+  :: forall m n r. (MonadSchema n m, MonadTableInfo r m)
   => QualifiedTable
+  -> HashSet RoleName
   -> Maybe (SelPermInfo 'Postgres)
   -> m (Parser 'Input n (AnnBoolExp 'Postgres UnpreparedValue))
-boolExp table selectPermissions = memoizeOn 'boolExp table $ do
+boolExp table roleCombination selectPermissions = memoizeOn 'boolExp table $ do
   tableGQLName <- getTableGQLName table
   let name = tableGQLName <> $$(G.litName "_bool_exp")
   let description = G.Description $
@@ -44,9 +47,9 @@ boolExp table selectPermissions = memoizeOn 'boolExp table $ do
 
   tableFieldParsers <- catMaybes <$> maybe
     (pure [])
-    (traverse mkField <=< tableSelectFields table)
+    (traverse mkField <=< tableSelectFields table roleCombination)
     selectPermissions
-  recur <- boolExp table selectPermissions
+  recur <- boolExp table roleCombination selectPermissions
   -- Bafflingly, ApplicativeDo doesn’t work if we inline this definition (I
   -- think the TH splices throw it off), so we have to define it separately.
   let specialFieldParsers =
@@ -72,8 +75,8 @@ boolExp table selectPermissions = memoizeOn 'boolExp table $ do
         -- field_name: field_type_bool_exp
         FIRelationship relationshipInfo -> do
           let remoteTable = riRTable relationshipInfo
-          remotePermissions <- lift $ tableSelectPermissions remoteTable
-          lift $ fmap (AVRel relationshipInfo) <$> boolExp remoteTable remotePermissions
+          remotePermissions <- lift $ tableSelectPermissions remoteTable roleCombination
+          lift $ fmap (AVRel relationshipInfo) <$> boolExp remoteTable roleCombination remotePermissions
 
         -- Using computed fields in boolean expressions is not currently supported.
         FIComputedField _ -> empty

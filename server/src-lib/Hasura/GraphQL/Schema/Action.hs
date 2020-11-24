@@ -27,6 +27,7 @@ import           Hasura.GraphQL.Schema.Common
 import           Hasura.GraphQL.Schema.Select
 import           Hasura.RQL.Types
 import           Hasura.Session
+import qualified Data.HashSet as Set
 
 
 -- | actionExecute is used to execute either a query action or a synchronous

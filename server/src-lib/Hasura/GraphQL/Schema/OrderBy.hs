@@ -22,6 +22,8 @@ import           Hasura.GraphQL.Schema.Common
 import           Hasura.GraphQL.Schema.Table
 import           Hasura.RQL.Types
 
+import           Hasura.Session
+
 
 -- | Corresponds to an object type for an order by.
 --
@@ -34,16 +36,17 @@ import           Hasura.RQL.Types
 -- >   obj-rel: <remote-table>_order_by
 -- > }
 orderByExp
-  :: forall m n r. (MonadSchema n m, MonadTableInfo r m, MonadRole r m)
+  :: forall m n r. (MonadSchema n m, MonadTableInfo r m)
   => QualifiedTable
+  -> HashSet RoleName
   -> SelPermInfo 'Postgres
   -> m (Parser 'Input n [IR.AnnOrderByItemG 'Postgres UnpreparedValue])
-orderByExp table selectPermissions = memoizeOn 'orderByExp table $ do
+orderByExp table roleCombination selectPermissions = memoizeOn 'orderByExp table $ do
   tableGQLName <- getTableGQLName table
   let name = tableGQLName <> $$(G.litName "_order_by")
   let description = G.Description $
         "Ordering options when selecting data from " <> table <<> "."
-  tableFields  <- tableSelectFields table selectPermissions
+  tableFields  <- tableSelectFields table roleCombination selectPermissions
   fieldParsers <- sequenceA . catMaybes <$> traverse mkField tableFields
   pure $ concat . catMaybes <$> P.object name (Just description) fieldParsers
   where
@@ -59,17 +62,17 @@ orderByExp table selectPermissions = memoizeOn 'orderByExp table $ do
         FIRelationship relationshipInfo -> do
           let remoteTable = riRTable relationshipInfo
           fieldName <- MaybeT $ pure $ G.mkName $ relNameToTxt $ riName relationshipInfo
-          perms <- MaybeT $ tableSelectPermissions remoteTable
+          perms <- MaybeT $ tableSelectPermissions remoteTable roleCombination
           let newPerms = fmapAnnBoolExp partialSQLExpToUnpreparedValue $ spiFilter perms
           case riType relationshipInfo of
             ObjRel -> do
-              otherTableParser <- lift $ orderByExp remoteTable perms
+              otherTableParser <- lift $ orderByExp remoteTable roleCombination perms
               pure $ do
                 otherTableOrderBy <- join <$> P.fieldOptional fieldName Nothing (P.nullable otherTableParser)
                 pure $ fmap (map $ fmap $ IR.AOCObjectRelation relationshipInfo newPerms) otherTableOrderBy
             ArrRel -> do
               let aggregateFieldName = fieldName <> $$(G.litName "_aggregate")
-              aggregationParser <- lift $ orderByAggregation remoteTable perms
+              aggregationParser <- lift $ orderByAggregation remoteTable roleCombination perms
               pure $ do
                 aggregationOrderBy <- join <$> P.fieldOptional aggregateFieldName Nothing (P.nullable aggregationParser)
                 pure $ fmap (map $ fmap $ IR.AOCArrayAggregation relationshipInfo newPerms) aggregationOrderBy
@@ -88,17 +91,18 @@ type OrderInfo = (PG.OrderType, PG.NullsOrder)
 -- order, rather than using a general intermediary representation
 
 orderByAggregation
-  :: forall m n r. (MonadSchema n m, MonadTableInfo r m, MonadRole r m)
+  :: forall m n r. (MonadSchema n m, MonadTableInfo r m)
   => QualifiedTable
+  -> HashSet RoleName
   -> SelPermInfo 'Postgres
   -> m (Parser 'Input n [IR.OrderByItemG 'Postgres (IR.AnnAggregateOrderBy 'Postgres)])
-orderByAggregation table selectPermissions = do
+orderByAggregation table roleCombination selectPermissions = do
   -- WIP NOTE
   -- there is heavy duplication between this and Select.tableAggregationFields
   -- it might be worth putting some of it in common, just to avoid issues when
   -- we change one but not the other?
   tableGQLName <- getTableGQLName table
-  allColumns   <- tableSelectColumns table selectPermissions
+  allColumns   <- tableSelectColumns table roleCombination selectPermissions
   let numColumns  = onlyNumCols allColumns
       compColumns = onlyComparableCols allColumns
       numFields   = catMaybes <$> traverse mkField numColumns

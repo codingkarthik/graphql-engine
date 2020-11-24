@@ -94,6 +94,7 @@ import           Data.Aeson
 import           Data.Aeson.Casing
 import           Data.Aeson.TH
 import           Data.Text.Extended
+import           Data.List                           (nub)
 import           Language.Haskell.TH.Syntax          (Lift)
 
 import           Hasura.Backends.Postgres.SQL.Types
@@ -109,7 +110,6 @@ import           Hasura.RQL.Types.RemoteRelationship
 import           Hasura.SQL.Backend
 import           Hasura.Server.Utils                 (duplicates, englishList)
 import           Hasura.Session
-
 
 data TableCustomRootFields
   = TableCustomRootFields
@@ -255,6 +255,33 @@ deriving instance Eq (SelPermInfo 'Postgres)
 instance Cacheable (SelPermInfo 'Postgres)
 instance ToJSON (SelPermInfo 'Postgres) where
   toJSON = genericToJSON $ aesonDrop 3 snakeCase
+
+instance Semigroup (SelPermInfo 'Postgres) where
+  lSelPermInfo <> rSelPermInfo =
+    SelPermInfo
+    { spiCols = spiCols lSelPermInfo <> spiCols rSelPermInfo
+    , spiScalarComputedFields = spiScalarComputedFields lSelPermInfo <> spiScalarComputedFields rSelPermInfo
+    , spiFilter = BoolOr [spiFilter lSelPermInfo, spiFilter rSelPermInfo]
+    , spiLimit =
+      case (spiLimit lSelPermInfo, spiLimit rSelPermInfo) of
+        (Nothing, Nothing) -> Nothing
+        (Just l , Nothing) -> Just l
+        (Nothing, Just r)  -> Just r
+        (Just l,  Just r)  -> Just (max l r)
+    , spiAllowAgg = spiAllowAgg lSelPermInfo || spiAllowAgg rSelPermInfo
+    , spiRequiredHeaders = nub $ spiRequiredHeaders lSelPermInfo <> spiRequiredHeaders rSelPermInfo
+    }
+
+instance Monoid (SelPermInfo 'Postgres) where
+  mempty =
+    SelPermInfo
+    { spiCols = mempty
+    , spiScalarComputedFields = mempty
+    , spiFilter = gBoolExpTrue -- TODO: check if this is correct
+    , spiLimit = Nothing
+    , spiAllowAgg = False
+    , spiRequiredHeaders = mempty
+    }
 
 data UpdPermInfo (b :: BackendType)
   = UpdPermInfo
